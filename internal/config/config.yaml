@@ -1,0 +1,31 @@
+server:
+
+
+watcher:
+  rules:
+    - source_dir: /data/cam1/in
+      target_dir: /data/cam1/out
+      ext: .m4s
+
+ffmpeg:
+  binary: ffmpeg
+
+  defaults:
+    input_args:
+    output_args:
+    output_name: manifest.mpd
+
+  cameras:
+    - id: cam1
+      rtsp_url: rtsp://10.0.0.11/stream1
+      output_dir: /data/cam1
+      output_args:
+        - -seg_duration
+        - "2"
+
+    - id: cam2
+      rtsp_url: rtsp://10.0.0.12/stream1
+      output_dir: /data/cam2
+      output_args:
+        - -seg_duration
+        - "5"
