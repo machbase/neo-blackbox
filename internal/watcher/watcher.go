@@ -50,7 +50,7 @@ func (w *Watcher) addWatches(inFd int, rules []config.WatcherRule, mask uint32) 
 		wd, err := unix.InotifyAddWatch(inFd, rule.SourceDir, mask)
 		if err != nil {
 			// 하나의 rule이 실패해도 전체 종료 : 무시하고 나머지 rule 실행
-			return nil, fmt.Errorf("failed to inotify add watch: %v", err)
+			return nil, fmt.Errorf("failed to inotify add watch(source_dir=%q): %v", rule.SourceDir, err)
 		}
 
 		ws.wdToIdx[int32(wd)] = i
@@ -61,9 +61,9 @@ func (w *Watcher) addWatches(inFd int, rules []config.WatcherRule, mask uint32) 
 }
 
 type RuleFailure struct {
-	id     int
-	Rule   config.WatcherRule
-	Reason string
+	id   int
+	Rule config.WatcherRule
+	Err  error
 }
 
 func (w *Watcher) prepare() ([]config.WatcherRule, []RuleFailure) {
@@ -72,13 +72,15 @@ func (w *Watcher) prepare() ([]config.WatcherRule, []RuleFailure) {
 
 	for i, rule := range w.cfg.Rules {
 		if rule.TargetDir == "" {
+			reason := fmt.Errorf("target_dir is empty")
 			log.Printf("watcher rule[%d]: target_dir is empty (source_dir=%q)", i, rule.SourceDir)
-			failed = append(failed, RuleFailure{id: i, Rule: rule, Reason: "target_dir is empty"})
+			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
 		if err := os.MkdirAll(rule.TargetDir, 0o755); err != nil {
+			reason := fmt.Errorf("failed to mkdir target_dir=%q : %v,", rule.TargetDir, err)
 			log.Printf("watcher rule[%d]: mkdir target_dir=%q (source_dir=%q): %v", i, rule.TargetDir, rule.SourceDir, err)
-			failed = append(failed, RuleFailure{id: i, Rule: rule, Reason: fmt.Sprintf("failed to mkdir target_dir: %q", rule.TargetDir)})
+			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
 		active = append(active, rule)
@@ -94,7 +96,7 @@ func (w *Watcher) retryLoop(ctx context.Context, req chan int) {
 func (w *Watcher) Run(ctx context.Context) error {
 	log.Printf("Start Watcher (rules len: %d)", len(w.cfg.Rules))
 
-	activeIdx, _ := w.prepare()
+	active, _ := w.prepare() // active, failed
 
 	inFd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
@@ -104,7 +106,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	mask := uint32(unix.IN_CLOSE_WRITE | unix.IN_MOVED_TO)
 
-	watchSet, err := w.addWatches(inFd, activeIdx, mask)
+	watchSet, err := w.addWatches(inFd, active, mask)
 	if err != nil {
 		return err
 	}
@@ -189,7 +191,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 func (w *Watcher) handleEvent(ev unix.InotifyEvent, name string, rule config.WatcherRule) {
 	if ev.Mask&unix.IN_CLOSE_WRITE != 0 {
 		if strings.EqualFold(filepath.Ext(name), rule.Ext) {
-			log.Printf("CLOSE_WRITE (ext:%s): %s", rule.Ext, name)
+			sourceFile := filepath.Join(rule.SourceDir, name)
+			targetFile := filepath.Join(rule.TargetDir, name)
+
+			os.Rename(sourceFile)
+
+			log.Printf("CLOSE_WRITE (ext:%s): %s ---> %s", rule.Ext, sourceFile, targetFile)
 		} else {
 			log.Println("CLOSE_WRITE : ", name)
 		}
