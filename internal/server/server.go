@@ -1,7 +1,6 @@
 package server
 
 import (
-	"blackbox-backend/internal/config"
 	"context"
 	"errors"
 	"log"
@@ -9,24 +8,25 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"blackbox-backend/internal/config"
+	"blackbox-backend/internal/db"
 
 	"github.com/gin-gonic/gin"
 )
 
+// Server represents the HTTP server.
 type Server struct {
-	cfg        config.ServerConfig
-	engine     *gin.Engine
-	httpServer *http.Server
-	data       *DataService
+	cfg     config.ServerConfig
+	engine  *gin.Engine
+	http    *http.Server
+	handler *Handler
 }
 
-func New(cfg config.ServerConfig) (*Server, error) {
+// New creates a new Server.
+func New(cfg config.ServerConfig, machbase *db.Machbase) (*Server, error) {
 	cfg.ApplyDefaults()
 
-	if cfg.Addr == "" {
-		cfg.Addr = "0.0.0.0:8000"
-	}
 	if cfg.BaseDir == "" {
 		exe, err := os.Executable()
 		if err != nil {
@@ -34,24 +34,22 @@ func New(cfg config.ServerConfig) (*Server, error) {
 		}
 		cfg.BaseDir = filepath.Dir(exe)
 	}
-	if cfg.DataPath == "" {
-		cfg.DataPath = "/data"
-	}
-
-	httpc := NewMachbaseHttpClient(cfg.Machbase)
-	ds := NewDataService(cfg.BaseDir, cfg.DataPath, httpc)
 
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(corsMiddleware())
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+	engine.Use(cors())
 
-	s := &Server{cfg: cfg, engine: r, data: ds}
-	s.registerRoutes()
+	s := &Server{
+		cfg:     cfg,
+		engine:  engine,
+		handler: NewHandler(machbase, cfg.DataPath),
+	}
+	s.routes()
 
-	s.httpServer = &http.Server{
+	s.http = &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      s.engine,
+		Handler:      engine,
 		ReadTimeout:  cfg.ReadTimeout(),
 		WriteTimeout: cfg.WriteTimeout(),
 	}
@@ -59,23 +57,25 @@ func New(cfg config.ServerConfig) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) registerRoutes() {
+func (s *Server) routes() {
 	api := s.engine.Group("/api")
-	{
-		api.GET("/cameras", s.handleCameras)
-		api.GET("/get_time_range", s.handleTimeRange)
-		api.GET("/get_chunk_info", s.handleChunkInfo)
-		api.GET("/v_get_chunk", s.handleGetChunk)
-		api.GET("/get_camera_rollup_info", s.handleCameraRollup)
 
-		api.GET("/sensors", s.handleSensors)
-		api.GET("/sensor_data", s.handleSensorData)
-	}
+	// Blackbox
+	api.GET("/cameras", s.handler.GetCameras)
+	api.GET("/get_time_range", s.handler.GetTimeRange)
+	api.GET("/get_chunk_info", s.handler.GetChunkInfo)
+	api.GET("/v_get_chunk", s.handler.GetChunk)
+	api.GET("/get_camera_rollup_info", s.handler.GetCameraRollup)
 
-	// Python SimpleHTTPRequestHandler 대응: 정적 파일 루트
+	// Sensor
+	api.GET("/sensors", s.handler.GetSensors)
+	api.GET("/sensor_data", s.handler.GetSensorData)
+
+	// Static files
 	s.engine.StaticFS("/", http.Dir(s.cfg.BaseDir))
 }
 
+// Run starts the server and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
@@ -84,9 +84,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Serving on http://%s", s.cfg.Addr)
-		if e := s.httpServer.Serve(ln); e != nil && !errors.Is(e, http.ErrServerClosed) {
-			errCh <- e
+		log.Printf("listening on http://%s", s.cfg.Addr)
+		if err := s.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
 			return
 		}
 		errCh <- nil
@@ -94,37 +94,20 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		sdCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout())
 		defer cancel()
-		_ = s.Shutdown(sdCtx)
-		return nil
-	case e := <-errCh:
-		return e
+		return s.http.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
 	}
 }
 
+// Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.httpServer.Shutdown(ctx)
+	return s.http.Shutdown(ctx)
 }
 
-func (s *Server) writeError(c *gin.Context, err error) {
-	var ae *ApiError
-	if errors.As(err, &ae) {
-		c.JSON(ae.Status, gin.H{"error": ae.Message})
-		return
-	}
-	c.JSON(500, gin.H{"error": "Internal server error"})
-}
-
-func (s *Server) requireQuery(c *gin.Context, key string) (string, *ApiError) {
-	v := strings.TrimSpace(c.Query(key))
-	if v == "" {
-		return "", newApiError(400, "Missing required parameter '"+key+"'")
-	}
-	return v, nil
-}
-
-func corsMiddleware() gin.HandlerFunc {
+func cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, X-Machbase-Api-Token, Authorization")
@@ -132,8 +115,7 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == http.MethodOptions {
-			c.Status(http.StatusOK)
-			c.Abort()
+			c.AbortWithStatus(http.StatusOK)
 			return
 		}
 		c.Next()

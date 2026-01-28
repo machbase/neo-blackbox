@@ -6,38 +6,31 @@ import (
 	"strings"
 )
 
-const (
-	videoStreamIndex = 0
-	defaultPort      = 8000
-)
+var tagPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 
-var (
-	tagRe = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
-
-	defaultSensorNames = func() []string {
-		out := make([]string, 0, 10)
-		for i := 1; i <= 10; i++ {
-			out = append(out, fmt.Sprintf("sensor-%d", i))
-		}
-		return out
-	}()
-
-	defaultSensorLabels = func() map[string]string {
-		m := map[string]string{}
-		for _, n := range defaultSensorNames {
-			m[n] = strings.ReplaceAll(n, "sensor-", "Sensor ")
-		}
-		return m
-	}()
-)
-
-type ApiError struct {
+// APIError represents an HTTP API error.
+type APIError struct {
 	Status  int    `json:"-"`
 	Message string `json:"error"`
 }
 
-func (e *ApiError) Error() string { return e.Message }
+func (e *APIError) Error() string {
+	return e.Message
+}
 
-func newApiError(status int, msg string) *ApiError {
-	return &ApiError{Status: status, Message: msg}
+// NewAPIError creates a new APIError.
+func NewAPIError(status int, msg string) *APIError {
+	return &APIError{Status: status, Message: msg}
+}
+
+// ValidateTag validates a tag name.
+func ValidateTag(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", fmt.Errorf("empty tag")
+	}
+	if !tagPattern.MatchString(s) {
+		return "", fmt.Errorf("invalid tag: %s", s)
+	}
+	return s, nil
 }

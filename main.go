@@ -1,16 +1,19 @@
 package main
 
 import (
-	"blackbox-backend/internal/config"
-	"blackbox-backend/internal/ffmpeg"
-	"blackbox-backend/internal/server"
-	"blackbox-backend/internal/watcher"
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"blackbox-backend/internal/config"
+	"blackbox-backend/internal/db"
+	"blackbox-backend/internal/ffmpeg"
+	"blackbox-backend/internal/server"
+	"blackbox-backend/internal/watcher"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -26,7 +29,7 @@ func main() {
 	}
 
 	if err := run(context.Background(), configFile); err != nil {
-		fmt.Fprintf(os.Stderr, "blackbox-backend: %v", err)
+		fmt.Fprintf(os.Stderr, "blackbox-backend: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -37,31 +40,43 @@ func run(c context.Context, path string) error {
 
 	cfg, err := config.Load(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	machbase, err := db.NewMachbase(cfg.Machbase)
+	if err != nil {
+		return fmt.Errorf("create machbase client: %w", err)
+	}
+
+	svr, err := server.New(cfg.Server, machbase)
+	if err != nil {
+		return fmt.Errorf("create server: %w", err)
 	}
 
 	ff := ffmpeg.New(cfg.FFmpeg)
 	w := watcher.New(cfg.Watcher)
-	svr, err := server.New(cfg.Server)
 
 	g, gctx := errgroup.WithContext(ctx)
+
 	g.Go(func() error {
 		return w.Run(gctx)
 	})
+
 	g.Go(func() error {
 		return ff.Run(gctx)
 	})
+
 	g.Go(func() error {
 		return svr.Run(gctx)
 	})
+
 	g.Go(func() error {
 		<-gctx.Done()
 		return svr.Shutdown(context.Background())
 	})
-	// g.Go로 실행한 모든 고루틴들이 종료될때까지 g.Wait() 대기
+
 	if err := g.Wait(); err != nil {
-		cancel()
-		return err
+		log.Printf("shutdown: %v", err)
 	}
 
 	return nil

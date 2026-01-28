@@ -15,6 +15,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const abnormal = unix.POLLHUP | unix.POLLERR | unix.POLLNVAL
+
 type Watcher struct {
 	cfg config.WatcherConfig
 
@@ -124,14 +126,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 		_, _ = unix.Write(wakeFd, b[:])
 	}()
 
-	buf := make([]byte, 64*1024)
-
 	pfds := []unix.PollFd{
 		{Fd: int32(inFd), Events: unix.POLLIN},
 		{Fd: int32(wakeFd), Events: unix.POLLIN},
 	}
 
-	const abnormal = unix.POLLHUP | unix.POLLERR | unix.POLLNVAL
+	buf := make([]byte, 64*1024)
 
 	for {
 		_, err := unix.Poll(pfds, -1)
@@ -188,24 +188,6 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// 특정 이름으로 처리하는 방식은 나중에 필요할때 추가
-func (w *Watcher) handleEvent(ev unix.InotifyEvent, name string, rule config.WatcherRule) {
-	if ev.Mask&unix.IN_CLOSE_WRITE != 0 {
-		if strings.EqualFold(filepath.Ext(name), rule.Ext) {
-			sourceFile := filepath.Join(rule.SourceDir, name)
-			targetFile := filepath.Join(rule.TargetDir, name)
-
-			log.Printf("CLOSE_WRITE (ext:%s): %s ---> %s", rule.Ext, sourceFile, targetFile)
-		} else {
-			log.Println("CLOSE_WRITE : ", name)
-		}
-	}
-
-	if ev.Mask&unix.IN_MOVED_TO != 0 {
-		log.Println("MOVED_TO: ", name)
-	}
-}
-
 func parseInotifyEvents(b []byte, fn func(ev unix.InotifyEvent, name string)) {
 	const sz = unix.SizeofInotifyEvent
 
@@ -232,5 +214,28 @@ func parseInotifyEvents(b []byte, fn func(ev unix.InotifyEvent, name string)) {
 
 		b = b[step:]
 	}
+}
 
+// 특정 이름으로 처리하는 방식은 나중에 필요할때 추가
+func (w *Watcher) handleEvent(ev unix.InotifyEvent, name string, rule config.WatcherRule) error {
+	if name == "" || strings.EqualFold(filepath.Ext(name), rule.Ext) {
+		return fmt.Errorf("")
+	}
+
+	if ev.Mask&unix.IN_CLOSE_WRITE != 0 {
+		if strings.EqualFold(filepath.Ext(name), rule.Ext) {
+			sourceFile := filepath.Join(rule.SourceDir, name)
+			targetFile := filepath.Join(rule.TargetDir, name)
+
+			log.Printf("CLOSE_WRITE (ext:%s): %s ---> %s", rule.Ext, sourceFile, targetFile)
+		} else {
+			log.Println("CLOSE_WRITE : ", name)
+		}
+	}
+
+	if ev.Mask&unix.IN_MOVED_TO != 0 {
+		log.Println("MOVED_TO: ", name)
+	}
+
+	return nil
 }
