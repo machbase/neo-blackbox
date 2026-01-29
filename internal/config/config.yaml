@@ -19,15 +19,50 @@ ffmpeg:
   defaults:
     input_args:
     output_args:
+        - flag: 공통 사용
+          value: 공통사용
     output_name: manifest.mpd
 
   cameras:
     - id: cam1
       rtsp_url: rtsp://10.0.0.11/stream1
       output_dir: /data/cam1
+      output_name: manifest.md
+
+      input_args:
+        - flag: rtsp_transport
+          value: tcp
+        - flag: rtsp_flags
+          value: prefer_tcp
+        - flag: buffer_size
+          value: 10485760
+        - flag: max_delay
+          value: 5000000 
+        - flag: probesize
+          value: 10000000
+        - flag: analyzeduration
+          value: 10000000
+        - flag: use_wallclock_as_timestamps
+          value: 1
+
+      mid_args:
+        - flag: copyts
+        - flag: c:v
+          value: copy
+
       output_args:
-        - -seg_duration
-        - "2"
+        - flag: f
+          value: dash
+        - flag: seg_duration
+          value: 5
+        - flag: use_template
+          value: 0
+        - flag: use_timeline
+          value: 0
+
+      extra_args: []
+
+
 
     - id: cam2
       rtsp_url: rtsp://10.0.0.12/stream1

@@ -1,5 +1,10 @@
 package config
 
+type ArgKV struct {
+	Flag  string `yaml:"flag"`
+	Value string `yaml:"value"`
+}
+
 type FFmpegConfig struct {
 	Binary   string         `yaml:"binary"`
 	Defaults FFmpegDefaults `yaml:"defaults"`
@@ -7,9 +12,9 @@ type FFmpegConfig struct {
 }
 
 type FFmpegDefaults struct {
-	InputArgs  []string `yaml:"input_args"`
-	OutputArgs []string `yaml:"output_args"`
-	OutputName string   `yaml:"output_name"`
+	InputArgs  []ArgKV `yaml:"input_args"`
+	OutputArgs []ArgKV `yaml:"output_args"`
+	OutputName string  `yaml:"output_name"`
 }
 
 type CameraJob struct {
@@ -17,9 +22,10 @@ type CameraJob struct {
 	RtspURL   string `yaml:"rtsp_url"`
 	OutputDIR string `yaml:"output_dir"`
 
-	InputArgs  []string `yaml:"input_args"`
-	OutputArgs []string `yaml:"output_args"`
-	OutputName string   `yaml:"output_name"`
+	InputArgs  []ArgKV `yaml:"input_args"`
+	MidArgs    []ArgKV `yaml:"mid_args"`
+	OutputArgs []ArgKV `yaml:"output_args"`
+	OutputName string  `yaml:"output_name"`
 
-	ExtraArgs []string `yaml:"extra_args"`
+	ExtraArgs []ArgKV `yaml:"extra_args"`
 }
