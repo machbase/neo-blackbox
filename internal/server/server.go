@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -11,6 +10,7 @@ import (
 
 	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
+	"blackbox-backend/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -125,7 +125,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("listening on http://%s", s.cfg.Addr)
+		logger.GetLogger().Infof("listening on http://%s", s.cfg.Addr)
 		if err := s.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return

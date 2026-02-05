@@ -6,13 +6,13 @@ import (
 	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/ffmpeg"
+	"blackbox-backend/internal/logger"
 	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -128,13 +128,13 @@ func (w *Watcher) prepare() ([]config.WatcherRule, []RuleFailure) {
 	for i, rule := range w.cfg.Rules {
 		if rule.TargetDir == "" {
 			reason := fmt.Errorf("target_dir is empty")
-			log.Printf("watcher rule[%d]: target_dir is empty (source_dir=%q)", i, rule.SourceDir)
+			logger.GetLogger().Infof("watcher rule[%d]: target_dir is empty (source_dir=%q)", i, rule.SourceDir)
 			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
 		if err := os.MkdirAll(rule.TargetDir, 0o755); err != nil {
 			reason := fmt.Errorf("failed to mkdir target_dir=%q : %v,", rule.TargetDir, err)
-			log.Printf("watcher rule[%d]: mkdir target_dir=%q (source_dir=%q): %v", i, rule.TargetDir, rule.SourceDir, err)
+			logger.GetLogger().Infof("watcher rule[%d]: mkdir target_dir=%q (source_dir=%q): %v", i, rule.TargetDir, rule.SourceDir, err)
 			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
@@ -149,7 +149,7 @@ func (w *Watcher) retryLoop(ctx context.Context, req chan int) {
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
-	log.Printf("Start Watcher (rules len: %d)", len(w.cfg.Rules))
+	logger.GetLogger().Infof("Start Watcher (rules len: %d)", len(w.cfg.Rules))
 
 	active, _ := w.prepare() // active, failed
 
@@ -210,7 +210,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			var tmp [8]byte
 			_, _ = unix.Read(wakeFd, tmp[:])
 			watchSet.RemoveAll(inFd)
-			log.Println("Stop Watcher")
+			logger.GetLogger().Info("Stop Watcher")
 			return nil
 		}
 
@@ -241,7 +241,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 						return
 					}
 					if err := w.handleEvent(ctx, ev, name, rule); err != nil {
-						log.Printf("handleEvent: %v", err)
+						logger.GetLogger().Infof("handleEvent: %v", err)
 						// return fmt.Errorf("handleEvent: %v", err)
 					}
 				})
@@ -336,7 +336,7 @@ func (w *Watcher) syncInit(rule config.WatcherRule) error {
 		if err := moveFile(src, dst); err != nil {
 			return fmt.Errorf("move init %q -> %q: %v", src, dst, err)
 		}
-		log.Printf("[INIT] moved: %s -> %s", src, dst)
+		logger.GetLogger().Infof("[INIT] moved: %s -> %s", src, dst)
 	}
 	return nil
 }
@@ -448,7 +448,7 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule config.WatcherRule, na
 		return fmt.Errorf("InsertChunk: %v", err)
 	}
 
-	log.Printf("[CHUNK] %s -> %s start=%.6f len=%.6f epochMs=%d", name, finalPath, timing.StartPTS, timing.Length, observedEpochMs)
+	logger.GetLogger().Infof("[CHUNK] %s -> %s start=%.6f len=%.6f epochMs=%d", name, finalPath, timing.StartPTS, timing.Length, observedEpochMs)
 
 	return nil
 }
@@ -459,7 +459,7 @@ func moveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	} else {
-		// log.Printf()
+		// logger.GetLogger().Infof()
 	}
 
 	in, err := os.Open(src)
@@ -537,7 +537,7 @@ func (w *Watcher) AddWatch(ctx context.Context, rule config.WatcherRule) error {
 		return err
 	}
 
-	log.Printf("[watcher] added watch: camera_id=%s source_dir=%s", rule.CameraID, rule.SourceDir)
+	logger.GetLogger().Infof("[watcher] added watch: camera_id=%s source_dir=%s", rule.CameraID, rule.SourceDir)
 	return nil
 }
 
@@ -555,6 +555,6 @@ func (w *Watcher) RemoveWatch(ctx context.Context, cameraID string) error {
 		return err
 	}
 
-	log.Printf("[watcher] removed watch: camera_id=%s", cameraID)
+	logger.GetLogger().Infof("[watcher] removed watch: camera_id=%s", cameraID)
 	return nil
 }

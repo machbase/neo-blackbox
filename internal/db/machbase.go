@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"blackbox-backend/internal/config"
+	"blackbox-backend/internal/logger"
 )
 
 // Machbase is a client for Machbase HTTP API.
@@ -88,7 +88,7 @@ func (m *Machbase) Query(ctx context.Context, sql string, opts ...QueryOption) (
 	}
 	u.RawQuery = q.Encode()
 
-	log.Printf("Machbase SQL: %s", sql)
+	logger.GetLogger().Debugf("Machbase SQL: %s", sql)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

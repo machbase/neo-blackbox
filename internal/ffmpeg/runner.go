@@ -2,11 +2,11 @@ package ffmpeg
 
 import (
 	"blackbox-backend/internal/config"
+	"blackbox-backend/internal/logger"
 	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -38,9 +38,9 @@ func (r *FFmpegRunner) Run(ctx context.Context) error {
 	go func() {
 		for ev := range events {
 			if ev.Err != nil {
-				log.Printf("[%d:%s] %s error: %v", ev.Index, ev.ID, ev.Stage, ev.Err)
+				logger.GetLogger().Debugf("[%d:%s] %s error: %v", ev.Index, ev.ID, ev.Stage, ev.Err)
 			} else {
-				log.Printf("[%d:%s] %s", ev.Index, ev.ID, ev.Stage)
+				logger.GetLogger().Debugf("[%d:%s] %s", ev.Index, ev.ID, ev.Stage)
 			}
 		}
 	}()
@@ -51,7 +51,7 @@ func (r *FFmpegRunner) Run(ctx context.Context) error {
 			defer wg.Done()
 
 			execArgs := r.buildExecArgs(cam)
-			log.Printf("FFmpeg command:\n%s\n", prettyCommand(r.cfg.Binary, execArgs))
+			logger.GetLogger().Debugf("FFmpeg command:\n%s\n", prettyCommand(r.cfg.Binary, execArgs))
 
 			cmd := exec.CommandContext(ctx, r.cfg.Binary, execArgs...)
 			cmd.Dir = cam.OutputDIR
@@ -95,7 +95,7 @@ type SegmentTiming struct {
 
 func (r *FFmpegRunner) ProbeConcatPacketTiming(ctx context.Context, initFile string, chunkFile string) (SegmentTiming, error) {
 	probeArgs := r.buildProbeArgs(initFile, chunkFile)
-	log.Printf("ffprobe command: %s\n", prettyCommand(r.cfg.Defaults.ProbeBinary, probeArgs))
+	logger.GetLogger().Debugf("ffprobe command: %s\n", prettyCommand(r.cfg.Defaults.ProbeBinary, probeArgs))
 
 	var errBuf bytes.Buffer
 	cmd := exec.CommandContext(ctx, r.cfg.Defaults.ProbeBinary, probeArgs...)

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 
 	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
+	"blackbox-backend/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -103,7 +103,7 @@ func (h *Handler) loadAllCameraConfigs() {
 	}
 	entries, err := os.ReadDir(h.cameraDir)
 	if err != nil {
-		log.Printf("[camera_configs] cameraDir not found, skip preload: %v", err)
+		logger.GetLogger().Warnf("[camera_configs] cameraDir not found, skip preload: %v", err)
 		return
 	}
 
@@ -118,7 +118,7 @@ func (h *Handler) loadAllCameraConfigs() {
 		cameraID := strings.TrimSuffix(entry.Name(), ".json")
 		config, err := h.loadCameraConfigFromFile(cameraID)
 		if err != nil {
-			log.Printf("[camera_configs] failed to load %s: %v", cameraID, err)
+			logger.GetLogger().Errorf("[camera_configs] failed to load %s: %v", cameraID, err)
 			continue
 		}
 		h.cameraConfigs[cameraID] = config
@@ -126,7 +126,7 @@ func (h *Handler) loadAllCameraConfigs() {
 			count += len(config.EventRule)
 		}
 	}
-	log.Printf("[camera_configs] preloaded %d rules from %d cameras", count, len(h.cameraConfigs))
+	logger.GetLogger().Infof("[camera_configs] preloaded %d rules from %d cameras", count, len(h.cameraConfigs))
 }
 
 // loadCameraConfigFromFile reads camera config from file. (caller holds lock or no lock needed)
@@ -167,7 +167,7 @@ func (h *Handler) getCameraConfig(cameraID string) *CameraCreateRequest {
 func (h *Handler) refreshCameraConfigCache(cameraID string) {
 	config, err := h.loadCameraConfigFromFile(cameraID)
 	if err != nil {
-		log.Printf("[camera_configs] failed to refresh %s: %v", cameraID, err)
+		logger.GetLogger().Errorf("[camera_configs] failed to refresh %s: %v", cameraID, err)
 		return
 	}
 	h.configMu.Lock()

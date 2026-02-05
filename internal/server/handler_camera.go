@@ -4,10 +4,10 @@ import (
 	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/dsl"
+	"blackbox-backend/internal/logger"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -272,7 +272,7 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 
 	var req AIResultRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("upload Ai: %v", err)
+		logger.GetLogger().Errorf("upload AI result: %v", err)
 		c.JSON(http.StatusBadRequest, Response{
 			Success: false,
 			Reason:  "bad request parameter",
@@ -361,7 +361,7 @@ func (h *Handler) evaluateEventRules(ctx context.Context, cameraID string, tsNan
 
 		result, err := dsl.Evaluate(rule.Expression, counts)
 		if err != nil {
-			log.Printf("[camera:%s][rule:%s] DSL parse error: %v", cameraID, rule.ID, err)
+			logger.GetLogger().Errorf("[camera:%s][rule:%s] DSL parse error: %v", cameraID, rule.ID, err)
 			continue
 		}
 
@@ -421,7 +421,7 @@ func (h *Handler) evaluateEventRules(ctx context.Context, cameraID string, tsNan
 
 	if len(events) > 0 {
 		if err := h.machbase.InsertCameraEvents(ctx, eventTable, events); err != nil {
-			log.Printf("[camera:%s] failed to insert events: %v", cameraID, err)
+			logger.GetLogger().Errorf("[camera:%s] failed to insert events: %v", cameraID, err)
 			return 0
 		}
 	}
@@ -617,7 +617,7 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	log.Printf("[camera:%s] ffmpeg start: %s %s", id, h.ffmpegBinary, strings.Join(args, " "))
+	logger.GetLogger().Infof("[camera:%s] ffmpeg start: %s %s", id, h.ffmpegBinary, strings.Join(args, " "))
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -640,7 +640,7 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 
 	if err := h.watcher.AddWatch(c.Request.Context(), rule); err != nil {
 		// watcher 추가 실패 시 ffmpeg 중지 (rollback)
-		log.Printf("[camera:%s] failed to add watcher, stopping ffmpeg: %v", id, err)
+		logger.GetLogger().Errorf("[camera:%s] failed to add watcher, stopping ffmpeg: %v", id, err)
 		cancel()
 		h.processMu.Lock()
 		delete(h.processes, id)
@@ -658,13 +658,13 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 
 		// ffmpeg 종료 시 watcher도 제거
 		if err := h.watcher.RemoveWatch(context.Background(), id); err != nil {
-			log.Printf("[camera:%s] failed to remove watcher: %v", id, err)
+			logger.GetLogger().Errorf("[camera:%s] failed to remove watcher: %v", id, err)
 		}
 
 		if err != nil {
-			log.Printf("[camera:%s] ffmpeg exited: %v", id, err)
+			logger.GetLogger().Warnf("[camera:%s] ffmpeg exited: %v", id, err)
 		} else {
-			log.Printf("[camera:%s] ffmpeg exited normally", id)
+			logger.GetLogger().Infof("[camera:%s] ffmpeg exited normally", id)
 		}
 	}()
 
@@ -696,7 +696,7 @@ func (h *Handler) DisableCamera(c *gin.Context) {
 
 	// watcher 제거 (ffmpeg 종료 go routine에서도 제거하지만, 명시적으로 제거)
 	if err := h.watcher.RemoveWatch(c.Request.Context(), id); err != nil {
-		log.Printf("[camera:%s] failed to remove watcher: %v", id, err)
+		logger.GetLogger().Warnf("[camera:%s] failed to remove watcher: %v", id, err)
 		// 에러가 발생해도 계속 진행 (이미 제거되었을 수 있음)
 	}
 

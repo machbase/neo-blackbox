@@ -2,7 +2,8 @@ server:
   addr: 127.0.0.1:8000
   camera_dir: "/home/aloha/machbase/blackbox-backend/tmp/cameras"
   mvs_dir: "/home/aloha/machbase/blackbox-backend/tmp/mvs"
-  
+  data_dir: "/home/aloha/machbase/blackbox-backend/tmp/data"
+
 machbase:
   host: 127.0.0.1
   port: 5654
@@ -13,7 +14,6 @@ watcher:
       source_dir: /data/camera1/in
       target_dir: /data/camera1/out
       ext: .m4s
-      # prefix: 추가?
 
 ffmpeg:
   binary: "/home/aloha/machbase/blackbox-backend/ffmpeg"
@@ -21,8 +21,6 @@ ffmpeg:
   defaults:
     input_args:
     output_args:
-        # - flag: 공통 사용
-        #   value: 공통사용
 
     probe_binary: "/home/aloha/machbase/blackbox-backend/ffprobe"
     probe_args:
@@ -32,16 +30,14 @@ ffmpeg:
         value: "v:0"
       - flag: show_entries
         value: "packet=pts_time,duration_time"
-      - flag: of 
+      - flag: of
         value: "csv=p=0"
-    # probe_input: "concat"
 
   cameras:
     - id: camera1
       rtsp_url: rtsp://210.99.70.120:1935/live/cctv002.stream
-      # rtsp_url: rtsp://machbase:machbase@192.168.1.141:554/stream1 
       output_dir: /data/camera1/in
-      output_name: manifest.md
+      output_name: manifest.mpd
       input_args:
         - flag: rtsp_transport
           value: "tcp"
@@ -58,7 +54,6 @@ ffmpeg:
         - flag: use_wallclock_as_timestamps
           value: "1"
       mid_args:
-        # - flag: copyts
         - flag: c:v
           value: "copy"
       output_args:
@@ -71,3 +66,15 @@ ffmpeg:
         - flag: use_timeline
           value: "0"
       extra_args: []
+
+# 로그 설정 (logrus + lumberjack)
+log:
+  level: "debug"  # debug, info, warn, error, fatal, panic
+  format: "text"  # json or text
+  output: "both"  # stdout, file, both
+  file:
+    filename: "/home/aloha/machbase/blackbox-backend/logs/test.log"
+    max_size: 50       # MB
+    max_backups: 5     # 백업 파일 개수
+    max_age: 7         # days
+    compress: true     # 압축 여부

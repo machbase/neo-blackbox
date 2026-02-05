@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
+
+	"blackbox-backend/internal/logger"
 )
 
 // CameraMetadataRow represents a camera metadata row.
@@ -251,7 +252,7 @@ func (m *Machbase) ChunkRecordForTime(ctx context.Context, tag string, ts time.T
 		safeTag, upperNs, endNs,
 	)
 
-	log.Printf("[CHUNK_QUERY] camera=%s, start_ns=%d, end_ns=%d", tag, upperNs, endNs)
+	logger.GetLogger().Debugf("[CHUNK_QUERY] camera=%s, start_ns=%d, end_ns=%d", tag, upperNs, endNs)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
 	if err != nil {
@@ -293,7 +294,7 @@ func (m *Machbase) CameraRollup(ctx context.Context, camera string, minutes int,
 		minutes, safeTag, startNs, endNs,
 	)
 
-	log.Printf("Machbase SQL (rollup): %s | minutes=%d | camera=%s | start_ns=%d | end_ns=%d",
+	logger.GetLogger().Debugf("Machbase SQL (rollup): %s | minutes=%d | camera=%s | start_ns=%d | end_ns=%d",
 		sql, minutes, camera, startNs, endNs)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
