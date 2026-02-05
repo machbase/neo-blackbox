@@ -8,8 +8,9 @@ import (
 type ServerConfig struct {
 	Addr                   string `yaml:"addr"` // e.g. "0.0.0.0:8000"
 	MvsDir                 string `yaml:"mvs_dir"`
+	CameraDir              string `yaml:"camera_dir"`
 	BaseDir                string `yaml:"base_dir"`                 // static root
-	DataPath               string `yaml:"data_path"`                // segment root (default: /data)
+	DataDir                string `yaml:"data_dir"`                 // segment root (default: /data)
 	ReadTimeoutSeconds     int    `yaml:"read_timeout_seconds"`     // optional
 	WriteTimeoutSeconds    int    `yaml:"write_timeout_seconds"`    // optional
 	ShutdownTimeoutSeconds int    `yaml:"shutdown_timeout_seconds"` // graceful shutdown timeout
@@ -19,13 +20,12 @@ func (c *ServerConfig) ApplyDefaults() {
 	if c.Addr == "" {
 		c.Addr = "0.0.0.0:8000"
 	}
-	if c.DataPath == "" {
-		c.DataPath = "/data"
+	if c.DataDir == "" {
+		c.DataDir = "/data"
 	}
 	if c.ShutdownTimeoutSeconds == 0 {
 		c.ShutdownTimeoutSeconds = 10
 	}
-
 }
 
 func (c ServerConfig) ShutdownTimeout() time.Duration {

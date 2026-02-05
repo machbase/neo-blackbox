@@ -48,7 +48,7 @@ func run(c context.Context, path string) error {
 		return fmt.Errorf("create machbase client: %w", err)
 	}
 
-	svr, err := server.New(cfg.Server, neo)
+	svr, err := server.New(cfg.Server, neo, cfg.FFmpeg.Binary)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}
@@ -62,9 +62,9 @@ func run(c context.Context, path string) error {
 		return w.Run(gctx)
 	})
 
-	g.Go(func() error {
-		return ff.Run(gctx)
-	})
+	// g.Go(func() error {
+	// 	return ff.Run(gctx)
+	// })
 
 	g.Go(func() error {
 		return svr.Run(gctx)

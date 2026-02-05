@@ -11,15 +11,17 @@ import (
 
 // GetSensors handles GET /api/sensors.
 func (h *Handler) GetSensors(c *gin.Context) {
+	tick := time.Now()
+
 	var req GetSensorsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		h.sendError(c, http.StatusBadRequest, "Missing required parameter 'tagname'")
+		errorResponse(c, tick, http.StatusBadRequest, "Missing required parameter 'tagname'")
 		return
 	}
 
 	camera, err := sanitizeTag(req.Tagname)
 	if err != nil {
-		h.sendError(c, http.StatusBadRequest, err.Error())
+		errorResponse(c, tick, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -53,24 +55,24 @@ func (h *Handler) GetSensors(c *gin.Context) {
 		sensors[i] = Sensor{ID: sensorID, Label: label}
 	}
 
-	resp := GetSensorsResponse{
+	successResponse(c, tick, GetSensorsResponse{
 		Camera:  camera,
 		Sensors: sensors,
-	}
-
-	c.JSON(http.StatusOK, resp)
+	})
 }
 
 // GetSensorData handles GET /api/sensor_data.
 func (h *Handler) GetSensorData(c *gin.Context) {
+	tick := time.Now()
+
 	var req GetSensorDataRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		h.sendError(c, http.StatusBadRequest, "Missing required parameters")
+		errorResponse(c, tick, http.StatusBadRequest, "Missing required parameters")
 		return
 	}
 
 	if req.Sensors == "" {
-		h.sendError(c, http.StatusBadRequest, "Missing required parameter 'sensors'")
+		errorResponse(c, tick, http.StatusBadRequest, "Missing required parameter 'sensors'")
 		return
 	}
 
@@ -83,38 +85,38 @@ func (h *Handler) GetSensorData(c *gin.Context) {
 		}
 		sanitized, err := sanitizeTag(token)
 		if err != nil {
-			h.sendError(c, http.StatusBadRequest, err.Error())
+			errorResponse(c, tick, http.StatusBadRequest, err.Error())
 			return
 		}
 		sensorIDs = append(sensorIDs, sanitized)
 	}
 
 	if len(sensorIDs) == 0 {
-		h.sendError(c, http.StatusBadRequest, "Parameter 'sensors' must include at least one sensor id")
+		errorResponse(c, tick, http.StatusBadRequest, "Parameter 'sensors' must include at least one sensor id")
 		return
 	}
 
 	startDt, err := parseTimeToken(req.Start)
 	if err != nil {
-		h.sendError(c, http.StatusBadRequest, "Invalid start time format")
+		errorResponse(c, tick, http.StatusBadRequest, "Invalid start time format")
 		return
 	}
 
 	endDt, err := parseTimeToken(req.End)
 	if err != nil {
-		h.sendError(c, http.StatusBadRequest, "Invalid end time format")
+		errorResponse(c, tick, http.StatusBadRequest, "Invalid end time format")
 		return
 	}
 
 	if startDt.After(endDt) {
-		h.sendError(c, http.StatusBadRequest, "Start time must be earlier than end time")
+		errorResponse(c, tick, http.StatusBadRequest, "Start time must be earlier than end time")
 		return
 	}
 
 	ctx := c.Request.Context()
 	rows, err := h.machbase.SensorRows(ctx, sensorIDs, startDt, endDt)
 	if err != nil {
-		h.sendError(c, http.StatusInternalServerError, "Failed to fetch sensor data")
+		errorResponse(c, tick, http.StatusInternalServerError, "Failed to fetch sensor data")
 		return
 	}
 
@@ -149,10 +151,8 @@ func (h *Handler) GetSensorData(c *gin.Context) {
 		}
 	}
 
-	resp := GetSensorDataResponse{
+	successResponse(c, tick, GetSensorDataResponse{
 		Sensors: sensorIDs,
 		Samples: samples,
-	}
-
-	c.JSON(http.StatusOK, resp)
+	})
 }

@@ -1,8 +1,12 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -37,28 +41,136 @@ var defaultSensorLabels = map[string]string{
 
 var tagPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 
+// cameraProcess tracks a running ffmpeg process for a camera.
+type cameraProcess struct {
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	startedAt time.Time
+}
+
 // Handler handles API requests.
 type Handler struct {
-	machbase    *db.Machbase
-	dataPath    string
-	mvsDir      string
-	prefixCache map[string]string
-	fpsCache    map[string]*int
-	cacheMu     sync.RWMutex
+	machbase     *db.Machbase
+	dataDir      string
+	mvsDir       string
+	cameraDir    string
+	ffmpegBinary string
+	prefixCache  map[string]string
+	fpsCache     map[string]*int
+	cacheMu      sync.RWMutex
+	processes    map[string]*cameraProcess
+	processMu    sync.Mutex
+	edgeState     map[string]bool                  // EDGE_ONLY 이전 상태: "camera_id.rule_id" → prev_result
+	edgeMu        sync.Mutex
+	cameraConfigs map[string]*CameraCreateRequest // camera_id → full camera config 캐시
+	configMu      sync.RWMutex
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, dataPath, mvsDir string) *Handler {
-	if dataPath == "" {
-		dataPath = "/data"
+func NewHandler(machbase *db.Machbase, dataDir, mvsDir, cameraDir, ffmpegBinary string) *Handler {
+	if dataDir == "" {
+		dataDir = "/data"
 	}
-	return &Handler{
-		machbase:    machbase,
-		dataPath:    dataPath,
-		mvsDir:      mvsDir,
-		prefixCache: make(map[string]string),
-		fpsCache:    make(map[string]*int),
+	h := &Handler{
+		machbase:      machbase,
+		dataDir:       dataDir,
+		mvsDir:        mvsDir,
+		cameraDir:     cameraDir,
+		ffmpegBinary:  ffmpegBinary,
+		prefixCache:   make(map[string]string),
+		fpsCache:      make(map[string]*int),
+		processes:     make(map[string]*cameraProcess),
+		edgeState:     make(map[string]bool),
+		cameraConfigs: make(map[string]*CameraCreateRequest),
 	}
+	h.loadAllCameraConfigs()
+	return h
+}
+
+// loadAllCameraConfigs scans cameraDir and pre-loads all camera configs into cache.
+func (h *Handler) loadAllCameraConfigs() {
+	if h.cameraDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(h.cameraDir)
+	if err != nil {
+		log.Printf("[camera_configs] cameraDir not found, skip preload: %v", err)
+		return
+	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		cameraID := strings.TrimSuffix(entry.Name(), ".json")
+		config, err := h.loadCameraConfigFromFile(cameraID)
+		if err != nil {
+			log.Printf("[camera_configs] failed to load %s: %v", cameraID, err)
+			continue
+		}
+		h.cameraConfigs[cameraID] = config
+		if len(config.EventRule) > 0 {
+			count += len(config.EventRule)
+		}
+	}
+	log.Printf("[camera_configs] preloaded %d rules from %d cameras", count, len(h.cameraConfigs))
+}
+
+// loadCameraConfigFromFile reads camera config from file. (caller holds lock or no lock needed)
+func (h *Handler) loadCameraConfigFromFile(cameraID string) (*CameraCreateRequest, error) {
+	path := filepath.Join(h.cameraDir, cameraID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var config CameraCreateRequest
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// getCameraConfig returns cached camera config. Loads from file on cache miss.
+func (h *Handler) getCameraConfig(cameraID string) *CameraCreateRequest {
+	h.configMu.RLock()
+	config, ok := h.cameraConfigs[cameraID]
+	h.configMu.RUnlock()
+	if ok {
+		return config
+	}
+
+	// cache miss → load from file
+	loaded, err := h.loadCameraConfigFromFile(cameraID)
+	if err != nil {
+		return nil
+	}
+	h.configMu.Lock()
+	h.cameraConfigs[cameraID] = loaded
+	h.configMu.Unlock()
+	return loaded
+}
+
+// refreshCameraConfigCache reloads camera config for a specific camera from file.
+func (h *Handler) refreshCameraConfigCache(cameraID string) {
+	config, err := h.loadCameraConfigFromFile(cameraID)
+	if err != nil {
+		log.Printf("[camera_configs] failed to refresh %s: %v", cameraID, err)
+		return
+	}
+	h.configMu.Lock()
+	h.cameraConfigs[cameraID] = config
+	h.configMu.Unlock()
+}
+
+// removeCameraConfigCache removes camera config cache for a camera.
+func (h *Handler) removeCameraConfigCache(cameraID string) {
+	h.configMu.Lock()
+	delete(h.cameraConfigs, cameraID)
+	h.configMu.Unlock()
 }
 
 // sendError sends an error response.
@@ -158,7 +270,7 @@ func (h *Handler) getCameraFPS(c *gin.Context, camera string) *int {
 
 // initPath returns the path to the init segment.
 func (h *Handler) initPath(camera string) string {
-	return filepath.Join(h.dataPath, camera, "init-stream0.m4s")
+	return filepath.Join(h.dataDir, camera, "init-stream0.m4s")
 }
 
 // chunkPath returns the path to a chunk segment.
@@ -167,7 +279,7 @@ func (h *Handler) chunkPath(c *gin.Context, camera string, chunkNumber int64) st
 	t := time.UnixMilli(chunkNumber).UTC()
 	dateDir := t.Format("20060102")
 	filename := prefix + "0-" + time.UnixMilli(chunkNumber).UTC().Format("20060102150405") + ".m4s"
-	return filepath.Join(h.dataPath, camera, dateDir, filename)
+	return filepath.Join(h.dataDir, camera, dateDir, filename)
 }
 
 // readChunkFile reads a chunk file.

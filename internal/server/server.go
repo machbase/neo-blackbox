@@ -28,7 +28,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // New creates a new Server.
-func New(cfg config.ServerConfig, machbase *db.Machbase) (*Server, error) {
+func New(cfg config.ServerConfig, machbase *db.Machbase, ffmpegBinary ...string) (*Server, error) {
 	cfg.ApplyDefaults()
 
 	if cfg.BaseDir == "" {
@@ -44,10 +44,15 @@ func New(cfg config.ServerConfig, machbase *db.Machbase) (*Server, error) {
 	engine.Use(gin.Recovery())
 	engine.Use(cors())
 
+	var ffBinary string
+	if len(ffmpegBinary) > 0 {
+		ffBinary = ffmpegBinary[0]
+	}
+
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, cfg.DataPath, cfg.MvsDir),
+		handler: NewHandler(machbase, cfg.DataDir, cfg.MvsDir, cfg.CameraDir, ffBinary),
 	}
 	s.routes()
 
@@ -75,30 +80,32 @@ func (s *Server) routes() {
 	// Sensor
 	api.GET("/sensors", s.handler.GetSensors)
 	api.GET("/sensor_data", s.handler.GetSensorData)
-
 	// ==================================================================
 	// Camera Management
-	api.POST("/camera", s.handler.CreateCamera)
-	api.GET("/camera/:id", s.handler.GetCamera)
-	api.POST("/camera/:id", s.handler.UpdateCamera)
-	api.DELETE("/camera/:id", s.handler.DeleteCamera)
+	api.POST("/camera", s.handler.CreateCamera)       // O
+	api.GET("/camera/:id", s.handler.GetCamera)       // O
+	api.POST("/camera/:id", s.handler.UpdateCamera)   // O
+	api.DELETE("/camera/:id", s.handler.DeleteCamera) // O
 	api.POST("/camera/test", s.handler.TestCameraConnection)
 
 	// Camera Control
-	api.POST("/camera/:id/enable", s.handler.EnableCamera)
-	api.POST("/camera/:id/disable", s.handler.DisableCamera)
+	api.POST("/camera/:id/enable", s.handler.EnableCamera)   // O
+	api.POST("/camera/:id/disable", s.handler.DisableCamera) // O
 
 	// Camera Status Monitoring
-	api.GET("/camera/:id/status", s.handler.GetCameraStatus)
-	api.GET("/cameras/health", s.handler.GetCamerasHealth)
-
-	// Media Server Setting
-	api.POST("/media/setting", s.handler.EnableCamera)
+	api.GET("/camera/:id/status", s.handler.GetCameraStatus) // O
+	api.GET("/cameras/health", s.handler.GetCamerasHealth)   // O
 
 	// ==================================================================
-	// MVS
-	api.POST("/mvs/camera", s.handler.CreateMvsCamera)
-	api.POST("/mvs/event", s.handler.CreateMvsEvent)
+	// Event Rule
+	api.GET("/event_rule", s.handler.GetEventRules)
+	api.POST("/event_rule", s.handler.PostEventRules)
+	api.PUT("/event_rule", s.handler.UpdateEventRules)
+	api.DELETE("/event_rule", s.handler.DeleteEventRules)
+
+	// ==================================================================
+	// AI
+	api.POST("/ai/result", s.handler.UploadAIResult)
 	// ==================================================================
 
 	// Static files - use NoRoute to avoid conflict with API routes

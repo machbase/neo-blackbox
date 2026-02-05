@@ -142,3 +142,28 @@ type GetSensorDataResponse struct {
 	Sensors []string       `json:"sensors"`
 	Samples []SensorSample `json:"samples"`
 }
+
+// ============================================================
+// Camera Create/Update Response Types
+// ============================================================
+
+// CreateCameraResponse is the response data for POST /api/camera.
+type CreateCameraResponse struct {
+	Name       string   `json:"name"`
+	ConfigPath string   `json:"config_path"`
+	Tables     []string `json:"tables"`
+	MvsPath    string   `json:"mvs_path,omitempty"`
+}
+
+// CreateMvsCameraResponse is the response data for POST /api/mvs/camera.
+type CreateMvsCameraResponse struct {
+	CameraID string `json:"camera_id"`
+	MvsPath  string `json:"mvs_path"`
+}
+
+// CreateMvsEventResponse is the response data for POST /api/ai/results.
+type CreateMvsEventResponse struct {
+	CameraID   string `json:"camera_id"`
+	LogCount   int    `json:"log_count"`
+	EventCount int    `json:"event_count"`
+}

@@ -8,10 +8,9 @@ create tag table sensor3 (
 create tag table {camera} (
     name varchar(128) primary key,
     time datetime basetime,     -- 시작 시간
-    value double summarized,                  -- 몇 초 
-    chunk_path varchar(128)     --동영상 경로 (청크 경로)
+    value double summarized,    -- 몇 초 (LENGTH)
+    chunk_path varchar(128)     -- 동영상 파일 경로 (청크 경로)
 ) with rollup;
--- length double summarized,   -- 삭제 예정
 
 
 CREATE TAG TABLE {camera}_event (

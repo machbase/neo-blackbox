@@ -1,6 +1,8 @@
 server:
   addr: 127.0.0.1:8000
+  camera_dir: "/home/aloha/machbase/blackbox-backend/tmp/cameras"
   mvs_dir: "/home/aloha/machbase/blackbox-backend/tmp/mvs"
+  data_dir: "/home/aloha/machbase/blackbox-backend/tmp/data"
   
 
 machbase:

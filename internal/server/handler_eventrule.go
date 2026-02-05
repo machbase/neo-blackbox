@@ -1,0 +1,263 @@
+package server
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetEventRules handles GET /api/event_rule?camera_id={id}.
+// 특정 카메라의 모든 EventRule 배열을 조회.
+func (h *Handler) GetEventRules(c *gin.Context) {
+	tick := time.Now()
+
+	cameraID := c.Query("camera_id")
+	if cameraID == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")
+		return
+	}
+
+	// 카메라 설정 파일 읽기
+	cameraPath := filepath.Join(h.cameraDir, cameraID+".json")
+	data, err := os.ReadFile(cameraPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", cameraID))
+			return
+		}
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
+		return
+	}
+
+	var camera CameraCreateRequest
+	if err := json.Unmarshal(data, &camera); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
+		return
+	}
+
+	successResponse(c, tick, map[string]any{
+		"camera_id":   cameraID,
+		"event_rules": camera.EventRule,
+	})
+}
+
+// PostEventRulesRequest represents the request body for adding a new event rule.
+type PostEventRulesRequest struct {
+	CameraID string    `json:"camera_id" binding:"required"`
+	Rule     EventRule `json:"rule" binding:"required"`
+}
+
+// PostEventRules handles POST /api/event_rule.
+// 새로운 EventRule을 카메라 설정에 추가.
+func (h *Handler) PostEventRules(c *gin.Context) {
+	tick := time.Now()
+
+	var req PostEventRulesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
+		return
+	}
+
+	// 카메라 설정 파일 읽기
+	cameraPath := filepath.Join(h.cameraDir, req.CameraID+".json")
+	data, err := os.ReadFile(cameraPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", req.CameraID))
+			return
+		}
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
+		return
+	}
+
+	var camera CameraCreateRequest
+	if err := json.Unmarshal(data, &camera); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
+		return
+	}
+
+	// rule_id 중복 체크
+	for _, existing := range camera.EventRule {
+		if existing.ID == req.Rule.ID {
+			errorResponse(c, tick, http.StatusConflict, fmt.Sprintf("rule_id '%s' already exists", req.Rule.ID))
+			return
+		}
+	}
+
+	// EventRule 추가
+	camera.EventRule = append(camera.EventRule, req.Rule)
+
+	// 파일 저장
+	cameraJSON, err := json.MarshalIndent(camera, "", "  ")
+	if err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to marshal camera config")
+		return
+	}
+
+	if err := os.WriteFile(cameraPath, cameraJSON, 0644); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to write camera config file")
+		return
+	}
+
+	// Event rules 캐시 갱신
+	h.refreshCameraConfigCache(req.CameraID)
+
+	successResponse(c, tick, map[string]any{
+		"camera_id": req.CameraID,
+		"rule":      req.Rule,
+	})
+}
+
+// UpdateEventRulesRequest represents the request body for updating an event rule.
+type UpdateEventRulesRequest struct {
+	CameraID string    `json:"camera_id" binding:"required"`
+	RuleID   string    `json:"rule_id" binding:"required"`
+	Rule     EventRule `json:"rule" binding:"required"`
+}
+
+// UpdateEventRules handles PUT /api/event_rule.
+// 기존 EventRule을 수정.
+func (h *Handler) UpdateEventRules(c *gin.Context) {
+	tick := time.Now()
+
+	var req UpdateEventRulesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
+		return
+	}
+
+	// 카메라 설정 파일 읽기
+	cameraPath := filepath.Join(h.cameraDir, req.CameraID+".json")
+	data, err := os.ReadFile(cameraPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", req.CameraID))
+			return
+		}
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
+		return
+	}
+
+	var camera CameraCreateRequest
+	if err := json.Unmarshal(data, &camera); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
+		return
+	}
+
+	// rule_id 찾아서 수정
+	found := false
+	for i, existing := range camera.EventRule {
+		if existing.ID == req.RuleID {
+			// rule_id는 변경 불가 (URL에서 지정된 것을 유지)
+			req.Rule.ID = req.RuleID
+			camera.EventRule[i] = req.Rule
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("rule_id '%s' not found", req.RuleID))
+		return
+	}
+
+	// 파일 저장
+	cameraJSON, err := json.MarshalIndent(camera, "", "  ")
+	if err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to marshal camera config")
+		return
+	}
+
+	if err := os.WriteFile(cameraPath, cameraJSON, 0644); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to write camera config file")
+		return
+	}
+
+	// Event rules 캐시 갱신
+	h.refreshCameraConfigCache(req.CameraID)
+
+	successResponse(c, tick, map[string]any{
+		"camera_id": req.CameraID,
+		"rule_id":   req.RuleID,
+		"rule":      req.Rule,
+	})
+}
+
+// DeleteEventRules handles DELETE /api/event_rule?camera_id={id}&rule_id={rule_id}.
+// 특정 EventRule을 삭제.
+func (h *Handler) DeleteEventRules(c *gin.Context) {
+	tick := time.Now()
+
+	cameraID := c.Query("camera_id")
+	ruleID := c.Query("rule_id")
+
+	if cameraID == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")
+		return
+	}
+	if ruleID == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "rule_id is required")
+		return
+	}
+
+	// 카메라 설정 파일 읽기
+	cameraPath := filepath.Join(h.cameraDir, cameraID+".json")
+	data, err := os.ReadFile(cameraPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", cameraID))
+			return
+		}
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
+		return
+	}
+
+	var camera CameraCreateRequest
+	if err := json.Unmarshal(data, &camera); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
+		return
+	}
+
+	// rule_id 찾아서 삭제
+	found := false
+	newRules := make([]EventRule, 0, len(camera.EventRule))
+	for _, rule := range camera.EventRule {
+		if rule.ID == ruleID {
+			found = true
+			continue // 이 rule은 스킵 (삭제)
+		}
+		newRules = append(newRules, rule)
+	}
+
+	if !found {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("rule_id '%s' not found", ruleID))
+		return
+	}
+
+	camera.EventRule = newRules
+
+	// 파일 저장
+	cameraJSON, err := json.MarshalIndent(camera, "", "  ")
+	if err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to marshal camera config")
+		return
+	}
+
+	if err := os.WriteFile(cameraPath, cameraJSON, 0644); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to write camera config file")
+		return
+	}
+
+	// Event rules 캐시 갱신
+	h.refreshCameraConfigCache(cameraID)
+
+	successResponse(c, tick, map[string]string{
+		"camera_id": cameraID,
+		"rule_id":   ruleID,
+	})
+}
