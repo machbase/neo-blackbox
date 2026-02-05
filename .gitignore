@@ -3,3 +3,6 @@ server-v3-info.txt
 script
 ffmpeg
 ffprobe
+dist
+tmp
+*.txt
