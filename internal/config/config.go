@@ -8,7 +8,6 @@ import (
 
 type AppConfig struct {
 	FFmpeg   FFmpegConfig   `yaml:"ffmpeg"`
-	Watcher  WatcherConfig  `yaml:"watcher"`
 	Server   ServerConfig   `yaml:"server"`
 	Machbase MachbaseConfig `yaml:"machbase"`
 	Log      LogConfig      `yaml:"log"`

@@ -55,7 +55,7 @@ func run(c context.Context, path string) error {
 	}
 
 	ff := ffmpeg.New(cfg.FFmpeg)
-	w := watcher.New(cfg.Watcher, neo, ff)
+	w := watcher.New(neo, ff, cfg.Server.CameraDir)
 
 	svr, err := server.New(cfg.Server, neo, w, cfg.FFmpeg.Binary)
 	if err != nil {

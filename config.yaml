@@ -8,9 +8,6 @@ machbase:
   host: 127.0.0.1
   port: 5654
 
-watcher:
-  rules:
-
 ffmpeg:
   binary: "/home/aloha/machbase/blackbox-backend/ffmpeg"
 

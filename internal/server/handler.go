@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/logger"
+	"blackbox-backend/internal/watcher"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,7 +71,7 @@ type Handler struct {
 
 // Watcher interface for adding/removing file system watches dynamically
 type Watcher interface {
-	AddWatch(ctx context.Context, rule config.WatcherRule) error
+	AddWatch(ctx context.Context, rule watcher.WatcherRule) error
 	RemoveWatch(ctx context.Context, cameraID string) error
 }
 

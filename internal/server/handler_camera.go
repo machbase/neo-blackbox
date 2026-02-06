@@ -1,10 +1,10 @@
 package server
 
 import (
-	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/dsl"
 	"blackbox-backend/internal/logger"
+	"blackbox-backend/internal/watcher"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -85,6 +85,14 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		return
 	}
 
+	// Set default values
+	if req.OutputName == "" {
+		req.OutputName = "manifest.mpd"
+	}
+	if req.OutputDir == "" {
+		req.OutputDir = filepath.Join(h.dataDir, req.Name, "in")
+	}
+
 	req.Enabled = true
 	cameraJSON, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
@@ -98,8 +106,8 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		return
 	}
 
-	// 2. Create 3 tables: {name}, {name}_event, {name}_log
-	if err := h.machbase.CreateCameraTables(c.Request.Context(), req.Name); err != nil {
+	// 2. Create 3 tables: {table}, {table}_event, {table}_log
+	if err := h.machbase.CreateCameraTables(c.Request.Context(), req.Table); err != nil {
 		// Rollback: delete the config file
 		_ = os.Remove(cameraPath)
 		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("failed to create camera tables: %v", err))
@@ -305,12 +313,12 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 		return
 	}
 
-	// 1) OR_LOG: SaveObjects가 true일 때만 detections → {camera}_log 테이블에 저장
+	// 1) OR_LOG: SaveObjects가 true일 때만 detections → {table}_log 테이블에 저장
 	if config.SaveObjects {
 		logs := make([]db.CameraLogRow, 0, len(req.Detections))
 		for ident, value := range req.Detections {
 			logs = append(logs, db.CameraLogRow{
-				Name:     req.CameraID + "." + ident,
+				Name:     config.Table + "." + ident,
 				Time:     tsNano,
 				Value:    value,
 				ModelID:  req.ModelID,
@@ -319,7 +327,7 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 			})
 		}
 
-		if err := h.machbase.InsertCameraLogs(c.Request.Context(), req.CameraID+"_log", logs); err != nil {
+		if err := h.machbase.InsertCameraLogs(c.Request.Context(), config.Table+"_log", logs); err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
 				Reason:  "failed to insert camera logs",
@@ -330,8 +338,8 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 		}
 	}
 
-	// 2) EventLog: 캐시된 event rules로 DSL 평가 → {camera}_event 저장
-	_ = h.evaluateEventRules(c.Request.Context(), req.CameraID, tsNano, req.Detections, config.EventRule)
+	// 2) EventLog: 캐시된 event rules로 DSL 평가 → {table}_event 저장
+	_ = h.evaluateEventRules(c.Request.Context(), config.Table, tsNano, req.Detections, config.EventRule)
 
 	c.JSON(http.StatusOK, Response{
 		Success: true,
@@ -478,6 +486,14 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 	// id는 URL에서 가져오므로 Name/Table 고정
 	req.Name = id
 	req.Table = id
+
+	// Set default values
+	if req.OutputName == "" {
+		req.OutputName = "manifest.mpd"
+	}
+	if req.OutputDir == "" {
+		req.OutputDir = filepath.Join(h.dataDir, req.Name, "in")
+	}
 
 	cameraJSON, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
@@ -631,8 +647,9 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 
 	// watcher에 rule 추가 (ffmpeg가 생성하는 파일을 감시)
 	targetDir := filepath.Join(h.dataDir, id, "out")
-	rule := config.WatcherRule{
+	rule := watcher.WatcherRule{
 		CameraID:  id,
+		Table:     cam.Table,
 		SourceDir: outputDir,
 		TargetDir: targetDir,
 		Ext:       ".m4s",

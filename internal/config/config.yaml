@@ -8,13 +8,6 @@ machbase:
   host: 127.0.0.1
   port: 5654
 
-watcher:
-  rules:
-    - camera_id: camera1
-      source_dir: /data/camera1/in
-      target_dir: /data/camera1/out
-      ext: .m4s
-
 ffmpeg:
   binary: "/home/aloha/machbase/blackbox-backend/ffmpeg"
 

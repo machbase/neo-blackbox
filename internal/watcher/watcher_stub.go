@@ -3,7 +3,6 @@
 package watcher
 
 import (
-	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/ffmpeg"
 	"blackbox-backend/internal/logger"
@@ -11,20 +10,29 @@ import (
 	"fmt"
 )
 
+// WatcherRule represents a watcher rule configuration.
+type WatcherRule struct {
+	CameraID  string // 카메라 식별자 (Name)
+	Table     string // DB 테이블명
+	SourceDir string
+	TargetDir string
+	Ext       string
+}
+
 type Watcher struct {
-	cfg     config.WatcherConfig
-	neo     *db.Machbase
-	ffRuner *ffmpeg.FFmpegRunner
+	neo       *db.Machbase
+	ffRuner   *ffmpeg.FFmpegRunner
+	CameraDir string
 
 	RamDisk string
 	DataDir string
 }
 
-func New(cfg config.WatcherConfig, neo *db.Machbase, ffRunner *ffmpeg.FFmpegRunner) *Watcher {
+func New(neo *db.Machbase, ffRunner *ffmpeg.FFmpegRunner, cameraDir string) *Watcher {
 	return &Watcher{
-		cfg:     cfg,
-		neo:     neo,
-		ffRuner: ffRunner,
+		neo:       neo,
+		ffRuner:   ffRunner,
+		CameraDir: cameraDir,
 	}
 }
 
@@ -39,7 +47,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 	return nil
 }
 
-func (w *Watcher) AddWatch(ctx context.Context, rule config.WatcherRule) error {
+func (w *Watcher) AddWatch(ctx context.Context, rule WatcherRule) error {
 	log := logger.GetLogger()
 	log.Warnf("[watcher stub] AddWatch called for camera_id=%s (no-op on non-Linux)", rule.CameraID)
 	return nil

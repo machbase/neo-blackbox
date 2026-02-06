@@ -3,8 +3,8 @@
 # Blackbox Backend API 전체 테스트 스크립트
 # Usage: ./test_blackbox_api.sh [BASE_URL]
 
-BASE="${1:-http://127.0.0.1:8000}"
-# BASE="${1:-http://192.168.0.87:8000}"
+# BASE="${1:-http://127.0.0.1:8000}"
+BASE="${1:-http://192.168.0.87:8000}"
 TIMESTAMP=$(date +%s)
 
 echo "=========================================="

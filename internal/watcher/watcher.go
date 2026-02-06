@@ -3,13 +3,13 @@
 package watcher
 
 import (
-	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/ffmpeg"
 	"blackbox-backend/internal/logger"
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,15 +26,23 @@ import (
 
 const abnormal = unix.POLLHUP | unix.POLLERR | unix.POLLNVAL
 
-type Watcher struct {
-	cfg config.WatcherConfig
+// WatcherRule represents a watcher rule configuration.
+type WatcherRule struct {
+	CameraID  string // 카메라 식별자 (Name)
+	Table     string // DB 테이블명
+	SourceDir string
+	TargetDir string
+	Ext       string
+}
 
+type Watcher struct {
 	neo     *db.Machbase
 	ffRuner *ffmpeg.FFmpegRunner
 
 	// 자주 사용하는 필드들
-	RamDisk string
-	DataDir string
+	RamDisk   string
+	DataDir   string
+	CameraDir string // 카메라 설정 파일 디렉토리
 
 	// 동적 watch 관리 (thread-safe)
 	mu       sync.Mutex
@@ -43,17 +51,17 @@ type Watcher struct {
 	mask     uint32
 }
 
-func New(cfg config.WatcherConfig, neo *db.Machbase, ffRunner *ffmpeg.FFmpegRunner) *Watcher {
+func New(neo *db.Machbase, ffRunner *ffmpeg.FFmpegRunner, cameraDir string) *Watcher {
 	return &Watcher{
-		cfg:     cfg,
-		neo:     neo,
-		ffRuner: ffRunner,
+		neo:       neo,
+		ffRuner:   ffRunner,
+		CameraDir: cameraDir,
 	}
 }
 
 type WatchSet struct {
-	wdToRule   map[int32]config.WatcherRule // watch descriptor -> rule
-	cameraToWd map[string]int32             // cameraID -> watch descriptor
+	wdToRule   map[int32]WatcherRule // watch descriptor -> rule
+	cameraToWd map[string]int32      // cameraID -> watch descriptor
 }
 
 func (ws *WatchSet) RemoveAll(inFd int) {
@@ -62,7 +70,7 @@ func (ws *WatchSet) RemoveAll(inFd int) {
 	}
 }
 
-func (ws *WatchSet) Add(inFd int, rule config.WatcherRule, mask uint32) error {
+func (ws *WatchSet) Add(inFd int, rule WatcherRule, mask uint32) error {
 	// 이미 해당 카메라가 등록되어 있으면 먼저 제거
 	if oldWd, exists := ws.cameraToWd[rule.CameraID]; exists {
 		// 기존 watch 제거
@@ -96,14 +104,14 @@ func (ws *WatchSet) Remove(inFd int, cameraID string) error {
 	return nil
 }
 
-func (ws *WatchSet) GetRule(wd int32) (config.WatcherRule, bool) {
+func (ws *WatchSet) GetRule(wd int32) (WatcherRule, bool) {
 	rule, ok := ws.wdToRule[wd]
 	return rule, ok
 }
 
-func (w *Watcher) addWatches(inFd int, rules []config.WatcherRule, mask uint32) (*WatchSet, error) {
+func (w *Watcher) addWatches(inFd int, rules []WatcherRule, mask uint32) (*WatchSet, error) {
 	ws := WatchSet{
-		wdToRule:   make(map[int32]config.WatcherRule, len(rules)),
+		wdToRule:   make(map[int32]WatcherRule, len(rules)),
 		cameraToWd: make(map[string]int32, len(rules)),
 	}
 
@@ -119,28 +127,81 @@ func (w *Watcher) addWatches(inFd int, rules []config.WatcherRule, mask uint32) 
 
 type RuleFailure struct {
 	id   int
-	Rule config.WatcherRule
+	Rule WatcherRule
 	Err  error
 }
 
-func (w *Watcher) prepare() ([]config.WatcherRule, []RuleFailure) {
-	active := make([]config.WatcherRule, 0, len(w.cfg.Rules))
+func (w *Watcher) prepare() ([]WatcherRule, []RuleFailure) {
+	// 카메라 설정 파일들을 읽어서 WatcherRule 생성
+	type CameraConfig struct {
+		Enabled   bool   `json:"enabled"`
+		Table     string `json:"table"`
+		Name      string `json:"name"`
+		OutputDir string `json:"output_dir"`
+		OutputName string `json:"output_name"`
+	}
+
+	active := make([]WatcherRule, 0)
 	failed := []RuleFailure{}
 
-	for i, rule := range w.cfg.Rules {
+	// cameraDir의 모든 .json 파일 읽기
+	entries, err := os.ReadDir(w.CameraDir)
+	if err != nil {
+		logger.GetLogger().Warnf("Failed to read camera directory %q: %v", w.CameraDir, err)
+		return active, failed
+	}
+
+	for i, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		// JSON 파일 읽기
+		filePath := filepath.Join(w.CameraDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.GetLogger().Warnf("Failed to read camera config %q: %v", filePath, err)
+			continue
+		}
+
+		var config CameraConfig
+		if err := json.Unmarshal(data, &config); err != nil {
+			logger.GetLogger().Warnf("Failed to parse camera config %q: %v", filePath, err)
+			continue
+		}
+
+		// enabled가 아니면 스킵
+		if !config.Enabled {
+			logger.GetLogger().Debugf("Camera %q is disabled, skipping watcher", config.Name)
+			continue
+		}
+
+		// WatcherRule 생성
+		rule := WatcherRule{
+			CameraID:  config.Name,
+			Table:     config.Table,
+			SourceDir: config.OutputDir,
+			TargetDir: filepath.Join(filepath.Dir(config.OutputDir), "out"),
+			Ext:       filepath.Ext(config.OutputName),
+		}
+
+		// Validation
 		if rule.TargetDir == "" {
 			reason := fmt.Errorf("target_dir is empty")
-			logger.GetLogger().Infof("watcher rule[%d]: target_dir is empty (source_dir=%q)", i, rule.SourceDir)
+			logger.GetLogger().Infof("watcher rule[%d] camera=%q: target_dir is empty (source_dir=%q)", i, config.Name, rule.SourceDir)
 			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
 		if err := os.MkdirAll(rule.TargetDir, 0o755); err != nil {
 			reason := fmt.Errorf("failed to mkdir target_dir=%q : %v,", rule.TargetDir, err)
-			logger.GetLogger().Infof("watcher rule[%d]: mkdir target_dir=%q (source_dir=%q): %v", i, rule.TargetDir, rule.SourceDir, err)
+			logger.GetLogger().Infof("watcher rule[%d] camera=%q: mkdir target_dir=%q (source_dir=%q): %v", i, config.Name, rule.TargetDir, rule.SourceDir, err)
 			failed = append(failed, RuleFailure{id: i, Rule: rule, Err: reason})
 			continue
 		}
+
 		active = append(active, rule)
+		logger.GetLogger().Debugf("Loaded watcher rule: camera=%q table=%q source=%q target=%q",
+			rule.CameraID, rule.Table, rule.SourceDir, rule.TargetDir)
 	}
 
 	return active, failed
@@ -151,9 +212,9 @@ func (w *Watcher) retryLoop(ctx context.Context, req chan int) {
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
-	logger.GetLogger().Infof("Start Watcher (rules len: %d)", len(w.cfg.Rules))
-
 	active, _ := w.prepare() // active, failed
+
+	logger.GetLogger().Infof("Start Watcher (loaded %d rules from camera configs)", len(active))
 
 	inFd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
@@ -284,7 +345,7 @@ func parseInotifyEvents(b []byte, fn func(ev unix.InotifyEvent, name string)) {
 }
 
 // 특정 이름으로 처리하는 방식은 나중에 필요할때 추가
-func (w *Watcher) handleEvent(ctx context.Context, ev unix.InotifyEvent, name string, rule config.WatcherRule) error {
+func (w *Watcher) handleEvent(ctx context.Context, ev unix.InotifyEvent, name string, rule WatcherRule) error {
 	if name == "" {
 		return nil
 	}
@@ -313,7 +374,7 @@ func (w *Watcher) handleEvent(ctx context.Context, ev unix.InotifyEvent, name st
 	}
 }
 
-func (w *Watcher) syncInit(rule config.WatcherRule) error {
+func (w *Watcher) syncInit(rule WatcherRule) error {
 	srcPattern := filepath.Join(rule.SourceDir, "init*"+rule.Ext)
 	srcInits, err := filepath.Glob(srcPattern)
 	if err != nil {
@@ -386,7 +447,7 @@ func isAllDigits(s string) bool {
 	return len(s) > 0
 }
 
-func (w *Watcher) proecessChunk(ctx context.Context, rule config.WatcherRule, name string) error {
+func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name string) error {
 	name = filepath.Base(name)
 
 	observedEpochMs := time.Now().UnixMilli()
@@ -447,7 +508,13 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule config.WatcherRule, na
 	utcTimeNs := observedEpochMs * 1_000_000 // ms -> ns
 
 	// DB에 청크 정보 저장: 카메라별 테이블명, 카메라ID, 실제 UTC 시간, 길이(초), 파일 경로
-	table := strings.ToUpper(rule.CameraID) // 카메라 ID를 테이블명으로 사용
+	// Table 필드가 없으면 CameraID를 대문자로 변환하여 사용 (하위 호환성)
+	table := rule.Table
+	if table == "" {
+		table = strings.ToUpper(rule.CameraID)
+	} else {
+		table = strings.ToUpper(table)
+	}
 	if err := w.neo.InsertChunk(ctx, table, rule.CameraID, utcTimeNs, timing.Length, finalPath); err != nil {
 		return fmt.Errorf("InsertChunk: %v", err)
 	}
@@ -520,7 +587,7 @@ func checkFileMinSize(path string, minSize int64) (bool, error) {
 
 // AddWatch dynamically adds a new watch rule to the running watcher.
 // This is called when a camera is enabled via API.
-func (w *Watcher) AddWatch(ctx context.Context, rule config.WatcherRule) error {
+func (w *Watcher) AddWatch(ctx context.Context, rule WatcherRule) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
