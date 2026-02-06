@@ -275,6 +275,18 @@ func Package() error {
 		}
 	}
 
+	// Copy web directory
+	webSrcDir := "web"
+	if _, err := os.Stat(webSrcDir); err == nil {
+		webDestDir := filepath.Join(packageDir, "web")
+		fmt.Printf("Copying %s to %s\n", webSrcDir, webDestDir)
+		if err := copyDir(webSrcDir, webDestDir); err != nil {
+			fmt.Printf("Warning: failed to copy web directory: %v\n", err)
+		}
+	} else {
+		fmt.Println("Warning: web directory not found, skipping")
+	}
+
 	// Create README
 	readmePath := filepath.Join(packageDir, "README.txt")
 	readmeContent := fmt.Sprintf(`Blackbox Backend Package
@@ -342,6 +354,32 @@ func createZip(sourceDir, targetFile string) error {
 
 	// Use zip command on Unix-like systems
 	return sh.RunV("zip", "-r", targetFile, base, "-C", dir)
+}
+
+// copyDir recursively copies a directory
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		// Target path
+		targetPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			// Create directory
+			return os.MkdirAll(targetPath, info.Mode())
+		}
+
+		// Copy file
+		return sh.Copy(targetPath, path)
+	})
 }
 
 // loadEnv reads .env file and returns a map of key-value pairs
