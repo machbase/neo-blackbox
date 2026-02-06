@@ -254,23 +254,26 @@ func (h *Handler) resolvePrefix(c *gin.Context, camera string) string {
 	}
 	h.cacheMu.RUnlock()
 
-	meta, err := h.machbase.Metadata(c.Request.Context(), camera)
-	if err != nil || meta == nil {
+	// Get prefix from camera config file instead of DB metadata
+	config := h.getCameraConfig(camera)
+	if config == nil {
 		h.cacheMu.Lock()
 		h.prefixCache[camera] = "chunk-stream"
+		h.fpsCache[camera] = nil
 		h.cacheMu.Unlock()
 		return "chunk-stream"
 	}
 
+	// Use default prefix for now
+	// TODO: add prefix field to config if custom prefix is needed
+	prefix := "chunk-stream"
+
 	h.cacheMu.Lock()
-	h.prefixCache[camera] = meta.Prefix
-	h.fpsCache[camera] = meta.FPS
+	h.prefixCache[camera] = prefix
+	h.fpsCache[camera] = nil // FPS not stored in config yet
 	h.cacheMu.Unlock()
 
-	if meta.Prefix == "" {
-		return "chunk-stream"
-	}
-	return meta.Prefix
+	return prefix
 }
 
 // getCameraFPS gets the FPS for a camera.

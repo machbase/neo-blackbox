@@ -80,16 +80,25 @@ func (h *Handler) GetTimeRange(c *gin.Context) {
 		return
 	}
 
-	camera, err := sanitizeTag(req.Tagname)
+	cameraID, err := sanitizeTag(req.Tagname)
 	if err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Get camera config to retrieve table name
+	config := h.getCameraConfig(cameraID)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Camera '%s' not found", cameraID))
 		return
 	}
 
 	ctx := c.Request.Context()
 	var start, end *string
 
-	stats, err := h.machbase.BlackboxStatsByTag(ctx, camera)
+	// Use table name and camera ID from config for DB queries
+	tableName := config.Table
+	stats, err := h.machbase.BlackboxStatsByTag(ctx, tableName, cameraID)
 	if err == nil && stats != nil {
 		minStr := formatTime(stats.MinTime)
 		maxStr := formatTime(stats.MaxTime)
@@ -98,7 +107,7 @@ func (h *Handler) GetTimeRange(c *gin.Context) {
 	}
 
 	if start == nil || end == nil {
-		bounds, err := h.machbase.BlackboxTimeBounds(ctx, camera)
+		bounds, err := h.machbase.BlackboxTimeBounds(ctx, tableName, cameraID)
 		if err == nil && bounds != nil {
 			if start == nil {
 				minStr := formatTime(bounds.MinTime)
@@ -112,17 +121,17 @@ func (h *Handler) GetTimeRange(c *gin.Context) {
 	}
 
 	if start == nil || end == nil {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("No timeline entries for camera '%s'", camera))
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("No timeline entries for camera '%s'", cameraID))
 		return
 	}
 
 	chunkDuration := 0.0
-	interval, err := h.machbase.BlackboxChunkInterval(ctx, camera)
+	interval, err := h.machbase.BlackboxChunkInterval(ctx, tableName, cameraID)
 	if err == nil && interval > 0 {
 		chunkDuration = interval
 	}
 
-	fps := h.getCameraFPS(c, camera)
+	fps := h.getCameraFPS(c, cameraID)
 	if chunkDuration == 0 && fps != nil && *fps > 0 {
 		chunkDuration = 1.0 / float64(*fps)
 	}
@@ -132,7 +141,7 @@ func (h *Handler) GetTimeRange(c *gin.Context) {
 	}
 
 	successResponse(c, tick, GetTimeRangeResponse{
-		Camera:               camera,
+		Camera:               cameraID,
 		Start:                *start,
 		End:                  *end,
 		ChunkDurationSeconds: chunkDuration,
@@ -150,9 +159,16 @@ func (h *Handler) GetChunkInfo(c *gin.Context) {
 		return
 	}
 
-	camera, err := sanitizeTag(req.Tagname)
+	cameraID, err := sanitizeTag(req.Tagname)
 	if err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Get camera config to retrieve table name
+	config := h.getCameraConfig(cameraID)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Camera '%s' not found", cameraID))
 		return
 	}
 
@@ -163,19 +179,20 @@ func (h *Handler) GetChunkInfo(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	record, err := h.machbase.ChunkRecordForTime(ctx, camera, timestamp)
+	tableName := config.Table
+	record, err := h.machbase.ChunkRecordForTime(ctx, tableName, cameraID, timestamp)
 	if err != nil {
 		errorResponse(c, tick, http.StatusInternalServerError, "Failed to fetch chunk info")
 		return
 	}
 
 	if record == nil {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Chunk not found for camera '%s' at time '%s'", camera, req.Time))
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Chunk not found for camera '%s' at time '%s'", cameraID, req.Time))
 		return
 	}
 
 	resp := GetChunkInfoResponse{
-		Camera: camera,
+		Camera: cameraID,
 		Time:   formatTime(record.EntryTime),
 		Length: int64(record.Length), // float64 -> int64 변환
 	}
@@ -194,9 +211,16 @@ func (h *Handler) GetChunk(c *gin.Context) {
 		return
 	}
 
-	camera, err := sanitizeTag(req.Tagname)
+	cameraID, err := sanitizeTag(req.Tagname)
 	if err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Get camera config to retrieve table name
+	config := h.getCameraConfig(cameraID)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Camera '%s' not found", cameraID))
 		return
 	}
 
@@ -208,10 +232,10 @@ func (h *Handler) GetChunk(c *gin.Context) {
 	var chunkData []byte
 
 	if timeToken == "0" || strings.ToLower(timeToken) == "init" {
-		path := h.initPath(camera)
+		path := h.initPath(cameraID)
 		chunkData, err = os.ReadFile(path)
 		if err != nil {
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s'", camera))
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s'", cameraID))
 			return
 		}
 	} else {
@@ -222,21 +246,22 @@ func (h *Handler) GetChunk(c *gin.Context) {
 		}
 
 		ctx := c.Request.Context()
-		record, err := h.machbase.ChunkRecordForTime(ctx, camera, timestamp)
+		tableName := config.Table
+		record, err := h.machbase.ChunkRecordForTime(ctx, tableName, cameraID, timestamp)
 		if err != nil {
 			errorResponse(c, tick, http.StatusInternalServerError, "Failed to fetch chunk info")
 			return
 		}
 
 		if record == nil {
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Chunk not found for camera '%s' at time '%s'", camera, timeToken))
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Chunk not found for camera '%s' at time '%s'", cameraID, timeToken))
 			return
 		}
 
 		// chunk_path를 직접 사용
 		chunkData, err = os.ReadFile(record.ChunkPath)
 		if err != nil {
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s' at path '%s'", camera, record.ChunkPath))
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s' at path '%s'", cameraID, record.ChunkPath))
 			return
 		}
 	}
@@ -255,9 +280,16 @@ func (h *Handler) GetCameraRollup(c *gin.Context) {
 		return
 	}
 
-	camera, err := sanitizeTag(req.Tagname)
+	cameraID, err := sanitizeTag(req.Tagname)
 	if err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Get camera config to retrieve table name
+	config := h.getCameraConfig(cameraID)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Camera '%s' not found", cameraID))
 		return
 	}
 
@@ -277,7 +309,8 @@ func (h *Handler) GetCameraRollup(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	rows, err := h.machbase.CameraRollup(ctx, camera, minutes, req.StartTime, req.EndTime)
+	tableName := config.Table
+	rows, err := h.machbase.CameraRollup(ctx, tableName, cameraID, minutes, req.StartTime, req.EndTime)
 	if err != nil {
 		errorResponse(c, tick, http.StatusInternalServerError, "Failed to fetch rollup data")
 		return
@@ -298,7 +331,7 @@ func (h *Handler) GetCameraRollup(c *gin.Context) {
 	endDt := utcNanosecondsToTime(req.EndTime)
 
 	successResponse(c, tick, GetCameraRollupResponse{
-		Camera:      camera,
+		Camera:      cameraID,
 		Minutes:     minutes,
 		StartTimeNs: req.StartTime,
 		EndTimeNs:   req.EndTime,

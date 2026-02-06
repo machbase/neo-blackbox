@@ -11,12 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetEventRules handles GET /api/event_rule?camera_id={id}.
+// GetEventRules handles GET /api/event_rule/:camera_id.
 // 특정 카메라의 모든 EventRule 배열을 조회.
 func (h *Handler) GetEventRules(c *gin.Context) {
 	tick := time.Now()
 
-	cameraID := c.Query("camera_id")
+	cameraID := c.Param("camera_id")
 	if cameraID == "" {
 		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")
 		return
@@ -40,9 +40,15 @@ func (h *Handler) GetEventRules(c *gin.Context) {
 		return
 	}
 
+	// nil slice를 빈 배열로 변환
+	eventRules := camera.EventRule
+	if eventRules == nil {
+		eventRules = []EventRule{}
+	}
+
 	successResponse(c, tick, map[string]any{
 		"camera_id":   cameraID,
-		"event_rules": camera.EventRule,
+		"event_rules": eventRules,
 	})
 }
 
@@ -113,30 +119,36 @@ func (h *Handler) PostEventRules(c *gin.Context) {
 	})
 }
 
-// UpdateEventRulesRequest represents the request body for updating an event rule.
-type UpdateEventRulesRequest struct {
-	CameraID string    `json:"camera_id" binding:"required"`
-	RuleID   string    `json:"rule_id" binding:"required"`
-	Rule     EventRule `json:"rule" binding:"required"`
-}
-
-// UpdateEventRules handles PUT /api/event_rule.
+// UpdateEventRules handles POST /api/event_rule/:camera_id/:rule_id.
 // 기존 EventRule을 수정.
 func (h *Handler) UpdateEventRules(c *gin.Context) {
 	tick := time.Now()
 
-	var req UpdateEventRulesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// URL 파라미터에서 camera_id, rule_id 가져오기
+	cameraID := c.Param("camera_id")
+	ruleID := c.Param("rule_id")
+
+	if cameraID == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")
+		return
+	}
+	if ruleID == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "rule_id is required")
+		return
+	}
+
+	var rule EventRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
 		return
 	}
 
 	// 카메라 설정 파일 읽기
-	cameraPath := filepath.Join(h.cameraDir, req.CameraID+".json")
+	cameraPath := filepath.Join(h.cameraDir, cameraID+".json")
 	data, err := os.ReadFile(cameraPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", req.CameraID))
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", cameraID))
 			return
 		}
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
@@ -152,17 +164,17 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 	// rule_id 찾아서 수정
 	found := false
 	for i, existing := range camera.EventRule {
-		if existing.ID == req.RuleID {
+		if existing.ID == ruleID {
 			// rule_id는 변경 불가 (URL에서 지정된 것을 유지)
-			req.Rule.ID = req.RuleID
-			camera.EventRule[i] = req.Rule
+			rule.ID = ruleID
+			camera.EventRule[i] = rule
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("rule_id '%s' not found", req.RuleID))
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("rule_id '%s' not found", ruleID))
 		return
 	}
 
@@ -179,22 +191,22 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 	}
 
 	// Event rules 캐시 갱신
-	h.refreshCameraConfigCache(req.CameraID)
+	h.refreshCameraConfigCache(cameraID)
 
 	successResponse(c, tick, map[string]any{
-		"camera_id": req.CameraID,
-		"rule_id":   req.RuleID,
-		"rule":      req.Rule,
+		"camera_id": cameraID,
+		"rule_id":   ruleID,
+		"rule":      rule,
 	})
 }
 
-// DeleteEventRules handles DELETE /api/event_rule?camera_id={id}&rule_id={rule_id}.
+// DeleteEventRules handles DELETE /api/event_rule/:camera_id/:rule_id.
 // 특정 EventRule을 삭제.
 func (h *Handler) DeleteEventRules(c *gin.Context) {
 	tick := time.Now()
 
-	cameraID := c.Query("camera_id")
-	ruleID := c.Query("rule_id")
+	cameraID := c.Param("camera_id")
+	ruleID := c.Param("rule_id")
 
 	if cameraID == "" {
 		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")

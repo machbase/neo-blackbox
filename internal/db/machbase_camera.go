@@ -6,9 +6,10 @@ import (
 )
 
 // CreateCameraTables creates 3 tables for a camera: {name}, {name}_event, {name}_log
+// If tables already exist, they will be reused (multiple cameras can share the same table).
 func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 	// 1. Main camera table (video chunks)
-	sqlMain := fmt.Sprintf(`CREATE TAG TABLE %s (
+	sqlMain := fmt.Sprintf(`CREATE TAG TABLE IF NOT EXISTS %s (
     name VARCHAR(128) PRIMARY KEY,
     time DATETIME BASETIME,
     value DOUBLE SUMMARIZED,
@@ -20,7 +21,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 	}
 
 	// 2. Event table (DSL evaluation results)
-	sqlEvent := fmt.Sprintf(`CREATE TAG TABLE %s_event (
+	sqlEvent := fmt.Sprintf(`CREATE TAG TABLE IF NOT EXISTS %s_event (
     name VARCHAR(128) PRIMARY KEY,
     time DATETIME BASETIME,
     value DOUBLE,
@@ -36,11 +37,11 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 	}
 
 	// 3. Log table (detection counts per ident)
-	sqlLog := fmt.Sprintf(`CREATE TAG TABLE %s_log (
+	sqlLog := fmt.Sprintf(`CREATE TAG TABLE IF NOT EXISTS %s_log (
     name VARCHAR(128) PRIMARY KEY,
     time DATETIME BASETIME,
     value DOUBLE,
-    model_id INTEGER 
+    model_id INTEGER
 ) METADATA (
     camera_id VARCHAR(64),
     ident VARCHAR(64)

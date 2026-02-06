@@ -23,9 +23,10 @@ declare -a SUCCESS_TESTS
 declare -a FAILED_TESTS
 
 # 테스트용 변수
-TAGNAME="camera1"  # 기본 카메라 ID (수정 가능)
-TEST_CAMERA_ID="test_camera_$(date +%s)"
-TEST_RULE_ID="test_rule_$(date +%s)"
+TAGNAME="test_camera"  # 기본 카메라 ID
+TEST_CAMERA_ID="test_camera"
+TEST_TABLE_NAME="test_table"
+TEST_RULE_ID="test_rule"
 
 # 테스트 함수
 test_api() {
@@ -98,10 +99,10 @@ echo "1. Camera Management - Setup"
 echo "=========================================="
 echo ""
 
-# [1] 테스트용 카메라 생성
+# [1] 테스트용 카메라 생성 (table과 name을 다르게 설정하여 테스트)
 test_api "1" "테스트용 카메라 생성" "POST" "/api/camera" \
 '{
-  "table": "'$TEST_CAMERA_ID'",
+  "table": "'$TEST_TABLE_NAME'",
   "name": "'$TEST_CAMERA_ID'",
   "desc": "Test Camera for API Testing",
   "rtsp_url": "rtsp://example.com/stream",
@@ -211,7 +212,7 @@ echo ""
 # [10] 카메라 수정
 test_api "10" "카메라 수정" "POST" "/api/camera/$TEST_CAMERA_ID" \
 '{
-  "table": "'$TEST_CAMERA_ID'",
+  "table": "'$TEST_TABLE_NAME'",
   "name": "'$TEST_CAMERA_ID'",
   "desc": "Updated Test Camera",
   "rtsp_url": "rtsp://example.com/stream2",
@@ -241,7 +242,7 @@ echo "=========================================="
 echo ""
 
 # [15] Event Rule 조회
-test_api "15" "Event Rule 조회" "GET" "/api/event_rule?camera_id=$TEST_CAMERA_ID"
+test_api "15" "Event Rule 조회" "GET" "/api/event_rule/$TEST_CAMERA_ID"
 
 # [16] Event Rule 추가
 test_api "16" "Event Rule 추가" "POST" "/api/event_rule" \
@@ -257,10 +258,8 @@ test_api "16" "Event Rule 추가" "POST" "/api/event_rule" \
 }'
 
 # [17] Event Rule 수정
-test_api "17" "Event Rule 수정" "PUT" "/api/event_rule" \
+test_api "17" "Event Rule 수정" "POST" "/api/event_rule/$TEST_CAMERA_ID/$TEST_RULE_ID" \
 '{
-  "camera_id": "'$TEST_CAMERA_ID'",
-  "rule_id": "'$TEST_RULE_ID'",
   "rule": {
     "rule_id": "'$TEST_RULE_ID'",
     "name": "Updated Test Rule",
@@ -271,7 +270,7 @@ test_api "17" "Event Rule 수정" "PUT" "/api/event_rule" \
 }'
 
 # [18] Event Rule 삭제
-test_api "18" "Event Rule 삭제" "DELETE" "/api/event_rule?camera_id=$TEST_CAMERA_ID&rule_id=$TEST_RULE_ID"
+test_api "18" "Event Rule 삭제" "DELETE" "/api/event_rule/$TEST_CAMERA_ID/$TEST_RULE_ID"
 
 # [19] 차량 감지 Event Rule 추가 (실제 카메라에 적용)
 test_api "19" "차량 감지 Event Rule 추가 ($TAGNAME)" "POST" "/api/event_rule" \
@@ -287,10 +286,10 @@ test_api "19" "차량 감지 Event Rule 추가 ($TAGNAME)" "POST" "/api/event_ru
 }'
 
 # [20] 추가한 차량 감지 규칙 확인
-test_api "20" "차량 감지 Event Rule 조회 ($TAGNAME)" "GET" "/api/event_rule?camera_id=$TAGNAME"
+test_api "20" "차량 감지 Event Rule 조회 ($TAGNAME)" "GET" "/api/event_rule/$TAGNAME"
 
 # [21] 차량 감지 Event Rule 삭제 (정리)
-test_api "21" "차량 감지 Event Rule 삭제 ($TAGNAME)" "DELETE" "/api/event_rule?camera_id=$TAGNAME&rule_id=vehicle_detection_$TIMESTAMP"
+test_api "21" "차량 감지 Event Rule 삭제 ($TAGNAME)" "DELETE" "/api/event_rule/$TAGNAME/vehicle_detection_$TIMESTAMP"
 
 echo "=========================================="
 echo "7. AI Result Upload"

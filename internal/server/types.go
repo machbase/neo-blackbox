@@ -149,10 +149,7 @@ type GetSensorDataResponse struct {
 
 // CreateCameraResponse is the response data for POST /api/camera.
 type CreateCameraResponse struct {
-	Name       string   `json:"name"`
-	ConfigPath string   `json:"config_path"`
-	Tables     []string `json:"tables"`
-	MvsPath    string   `json:"mvs_path,omitempty"`
+	CameraID string `json:"camera_id"`
 }
 
 // CreateMvsCameraResponse is the response data for POST /api/mvs/camera.

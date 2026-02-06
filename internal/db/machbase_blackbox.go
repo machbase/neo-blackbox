@@ -110,14 +110,18 @@ type BlackboxStats struct {
 	MaxTime time.Time
 }
 
-// BlackboxStatsByTag fetches blackbox statistics for a tag.
-func (m *Machbase) BlackboxStatsByTag(ctx context.Context, tag string) (*BlackboxStats, error) {
-	safeTag := escapeSQLLiteral(tag)
-	// 카메라별 STAT 테이블: V${CAMERA_ID}_STAT
-	statTable := fmt.Sprintf("V$%s_STAT", strings.ToUpper(safeTag))
+// BlackboxStatsByTag fetches blackbox statistics for a camera.
+// tableName: the table name (e.g., "camera2")
+// cameraID: the camera ID stored in the 'name' column (e.g., "camera1")
+func (m *Machbase) BlackboxStatsByTag(ctx context.Context, tableName string, cameraID string) (*BlackboxStats, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
+	// 카메라별 STAT 테이블: V${TABLE_NAME}_STAT
+	// Note: Machbase system views use uppercase
+	statTable := fmt.Sprintf("V$%s_STAT", strings.ToUpper(safeTable))
 	sql := fmt.Sprintf(
 		"select name, min_time, max_time from %s where name = '%s'",
-		statTable, safeTag,
+		statTable, safeCameraID,
 	)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
@@ -145,14 +149,15 @@ func (m *Machbase) BlackboxStatsByTag(ctx context.Context, tag string) (*Blackbo
 	}, nil
 }
 
-// BlackboxTimeBounds fetches time bounds for a tag.
-func (m *Machbase) BlackboxTimeBounds(ctx context.Context, tag string) (*BlackboxStats, error) {
-	safeTag := escapeSQLLiteral(tag)
-	// 카메라별 테이블: {CAMERA_ID}
-	table := strings.ToUpper(safeTag)
+// BlackboxTimeBounds fetches time bounds for a camera.
+// tableName: the table name (e.g., "camera2")
+// cameraID: the camera ID stored in the 'name' column (e.g., "camera1")
+func (m *Machbase) BlackboxTimeBounds(ctx context.Context, tableName string, cameraID string) (*BlackboxStats, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
 	sql := fmt.Sprintf(
 		"select min(time) as min_time, max(time) as max_time from %s where name = '%s'",
-		table, safeTag,
+		safeTable, safeCameraID,
 	)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
@@ -177,20 +182,21 @@ func (m *Machbase) BlackboxTimeBounds(ctx context.Context, tag string) (*Blackbo
 	}
 
 	return &BlackboxStats{
-		Name:    tag,
+		Name:    cameraID,
 		MinTime: time.Unix(0, row.MinTime),
 		MaxTime: time.Unix(0, row.MaxTime),
 	}, nil
 }
 
-// BlackboxChunkInterval calculates the chunk interval for a tag.
-func (m *Machbase) BlackboxChunkInterval(ctx context.Context, tag string) (float64, error) {
-	safeTag := escapeSQLLiteral(tag)
-	// 카메라별 테이블: {CAMERA_ID}
-	table := strings.ToUpper(safeTag)
+// BlackboxChunkInterval calculates the chunk interval for a camera.
+// tableName: the table name (e.g., "camera2")
+// cameraID: the camera ID stored in the 'name' column (e.g., "camera1")
+func (m *Machbase) BlackboxChunkInterval(ctx context.Context, tableName string, cameraID string) (float64, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
 	sql := fmt.Sprintf(
 		"select time from %s where name = '%s' order by time limit 2",
-		table, safeTag,
+		safeTable, safeCameraID,
 	)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
@@ -235,20 +241,21 @@ type ChunkRecord struct {
 }
 
 // ChunkRecordForTime fetches chunk record for a specific time.
-func (m *Machbase) ChunkRecordForTime(ctx context.Context, tag string, ts time.Time) (*ChunkRecord, error) {
-	safeTag := escapeSQLLiteral(tag)
+// tableName: the table name (e.g., "camera2")
+// cameraID: the camera ID stored in the 'name' column (e.g., "camera1")
+func (m *Machbase) ChunkRecordForTime(ctx context.Context, tableName string, cameraID string, ts time.Time) (*ChunkRecord, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
 	upperNs := ts.UnixNano()
 	endNs := upperNs + 6*1_000_000_000 // +6 seconds
 
-	// 카메라별 테이블: {CAMERA_ID}
-	table := strings.ToUpper(safeTag)
 	sql := fmt.Sprintf(
 		"select /*+ SCAN_FORWARD(%s) */ time, value, chunk_path from %s "+
 			"where name = '%s' and time >= %d and time <= %d order by time limit 1",
-		table, table, safeTag, upperNs, endNs,
+		safeTable, safeTable, safeCameraID, upperNs, endNs,
 	)
 
-	logger.GetLogger().Debugf("[CHUNK_QUERY] camera=%s, table=%s, start_ns=%d, end_ns=%d", tag, table, upperNs, endNs)
+	logger.GetLogger().Debugf("[CHUNK_QUERY] camera=%s, table=%s, start_ns=%d, end_ns=%d", cameraID, safeTable, upperNs, endNs)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
 	if err != nil {
@@ -282,18 +289,19 @@ type RollupRow struct {
 }
 
 // CameraRollup fetches rollup data for a camera.
-func (m *Machbase) CameraRollup(ctx context.Context, camera string, minutes int, startNs, endNs int64) ([]RollupRow, error) {
-	safeTag := escapeSQLLiteral(camera)
-	// 카메라별 테이블: {CAMERA_ID}
-	table := strings.ToUpper(safeTag)
+// tableName: the table name (e.g., "camera2")
+// cameraID: the camera ID stored in the 'name' column (e.g., "camera1")
+func (m *Machbase) CameraRollup(ctx context.Context, tableName string, cameraID string, minutes int, startNs, endNs int64) ([]RollupRow, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
 	sql := fmt.Sprintf(
 		"select rollup('min', %d, time) as time, sum(value) as total_length "+
 			"from %s where name = '%s' and time between %d and %d group by time order by time",
-		minutes, table, safeTag, startNs, endNs,
+		minutes, safeTable, safeCameraID, startNs, endNs,
 	)
 
 	logger.GetLogger().Debugf("Machbase SQL (rollup): %s | minutes=%d | camera=%s | table=%s | start_ns=%d | end_ns=%d",
-		sql, minutes, camera, table, startNs, endNs)
+		sql, minutes, cameraID, safeTable, startNs, endNs)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
 	if err != nil {

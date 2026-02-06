@@ -98,10 +98,10 @@ func (s *Server) routes() {
 
 	// ==================================================================
 	// Event Rule
-	api.GET("/event_rule", s.handler.GetEventRules)
+	api.GET("/event_rule/:camera_id", s.handler.GetEventRules)
 	api.POST("/event_rule", s.handler.PostEventRules)
-	api.PUT("/event_rule", s.handler.UpdateEventRules)
-	api.DELETE("/event_rule", s.handler.DeleteEventRules)
+	api.POST("/event_rule/:camera_id/:rule_id", s.handler.UpdateEventRules)
+	api.DELETE("/event_rule/:camera_id/:rule_id", s.handler.DeleteEventRules)
 
 	// ==================================================================
 	// AI

@@ -144,20 +144,8 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 	// 4. Event rules 캐시 초기화
 	h.refreshCameraConfigCache(req.Name)
 
-	c.JSON(http.StatusOK, Response{
-		Success: true,
-		Reason:  "success",
-		Elapse:  time.Since(tick).String(),
-		Data: CreateCameraResponse{
-			Name:       req.Name,
-			ConfigPath: cameraPath,
-			Tables: []string{
-				req.Name,
-				req.Name + "_event",
-				req.Name + "_log",
-			},
-			MvsPath: mvsPath,
-		},
+	successResponse(c, tick, CreateCameraResponse{
+		CameraID: req.Name,
 	})
 }
 
@@ -471,9 +459,20 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 
 	cameraPath := filepath.Join(h.cameraDir, id+".json")
 
-	// 기존 파일 존재 확인
-	if _, err := os.Stat(cameraPath); os.IsNotExist(err) {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", id))
+	// 기존 카메라 설정 읽기
+	data, err := os.ReadFile(cameraPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", id))
+			return
+		}
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
+		return
+	}
+
+	var existing CameraCreateRequest
+	if err := json.Unmarshal(data, &existing); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
 		return
 	}
 
@@ -483,9 +482,9 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		return
 	}
 
-	// id는 URL에서 가져오므로 Name/Table 고정
-	req.Name = id
-	req.Table = id
+	// name과 table은 기존 값 유지 (변경 불가)
+	req.Name = existing.Name
+	req.Table = existing.Table
 
 	// Set default values
 	if req.OutputName == "" {
@@ -531,9 +530,7 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 	h.refreshCameraConfigCache(id)
 
 	successResponse(c, tick, CreateCameraResponse{
-		Name:       id,
-		ConfigPath: cameraPath,
-		MvsPath:    mvsPath,
+		CameraID: id,
 	})
 }
 
