@@ -94,7 +94,7 @@ func (h *Handler) GetModels(c *gin.Context) {
 func (h *Handler) GetDetectObjects(c *gin.Context) {
 	tick := time.Now()
 
-	objects := []string{"person", "car", "truck", "bus"}
+	objects := []string{"person", "car", "truck", "bus", "train", "cat"}
 
 	successResponse(c, tick, map[string]any{
 		"detect_objects": objects,
