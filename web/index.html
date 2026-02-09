@@ -372,6 +372,11 @@
                     <h3>AI Results</h3>
                     <div class="nav-item" data-section="ai-result">AI 결과 업로드</div>
                 </div>
+
+                <div class="nav-section">
+                    <h3>MVS</h3>
+                    <div class="nav-item" data-section="mvs-camera-create">MVS 카메라 생성</div>
+                </div>
             </div>
 
             <div class="main-content">
@@ -430,6 +435,16 @@
                     <div class="form-group">
                         <label>Detect Objects (쉼표로 구분)</label>
                         <input type="text" id="create-objects" placeholder="person,car,truck,bus" />
+                    </div>
+                    <div class="form-group">
+                        <label>Output Directory (ffmpeg 출력 경로)</label>
+                        <input type="text" id="create-output-dir" placeholder="빈 값: 자동 설정 ({data_dir}/{name}/in), 절대 경로: 그대로 사용" />
+                        <p class="help-text">빈 값이면 {data_dir}/{name}/in 사용, 절대 경로면 그대로 사용</p>
+                    </div>
+                    <div class="form-group">
+                        <label>Archive Directory (watcher 아카이브 경로)</label>
+                        <input type="text" id="create-archive-dir" placeholder="빈 값: 자동 설정 ({data_dir}/{name}/out), 절대 경로: 그대로 사용" />
+                        <p class="help-text">빈 값이면 {data_dir}/{name}/out 사용, 절대 경로면 그대로 사용</p>
                     </div>
                     <div class="form-group">
                         <label>FFmpeg Options (JSON Array)</label>
@@ -780,6 +795,30 @@
                     <button class="btn btn-success" onclick="uploadAIResult()">업로드하기</button>
                     <div class="response-area" id="ai-result-response"></div>
                 </div>
+
+                <!-- MVS Camera Create Section -->
+                <div class="api-section" id="mvs-camera-create">
+                    <h2><span class="method-badge method-post">POST</span> MVS 카메라 생성</h2>
+                    <p class="help-text">MVS 카메라 설정 파일(.mvs)을 생성합니다.</p>
+                    <div class="form-group">
+                        <label>Camera ID *</label>
+                        <input type="text" id="mvs-camera-id" placeholder="camera1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Camera URL *</label>
+                        <input type="text" id="mvs-camera-url" placeholder="rtsp://192.168.1.100:554/stream" />
+                    </div>
+                    <div class="form-group">
+                        <label>Model ID</label>
+                        <input type="number" id="mvs-model-id" placeholder="0" value="0" />
+                    </div>
+                    <div class="form-group">
+                        <label>Detect Objects (쉼표로 구분)</label>
+                        <input type="text" id="mvs-detect-objects" placeholder="person,car,truck,bus" />
+                    </div>
+                    <button class="btn btn-success" onclick="createMVSCamera()">생성하기</button>
+                    <div class="response-area" id="mvs-camera-create-response"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -994,6 +1033,9 @@ ${JSON.stringify(data, null, 2)}
                     }
                 }
 
+                const outputDir = document.getElementById('create-output-dir').value.trim();
+                const archiveDir = document.getElementById('create-archive-dir').value.trim();
+
                 const body = {
                     table: document.getElementById('create-table').value,
                     name: document.getElementById('create-name').value,
@@ -1001,6 +1043,8 @@ ${JSON.stringify(data, null, 2)}
                     rtsp_url: document.getElementById('create-rtsp').value,
                     detect_objects: document.getElementById('create-objects').value.split(',').map(s => s.trim()).filter(Boolean),
                     save_objects: true,
+                    output_dir: outputDir,
+                    archive_dir: archiveDir,
                     ffmpeg_options: ffmpegOptions
                 };
 
@@ -1354,6 +1398,30 @@ ${JSON.stringify(data, null, 2)}
                 showResponse('ai-result-response', data);
             } catch (error) {
                 showResponse('ai-result-response', { error: error.message }, true);
+            }
+        }
+
+        // MVS Functions
+        async function createMVSCamera() {
+            const cameraId = document.getElementById('mvs-camera-id').value;
+            const cameraUrl = document.getElementById('mvs-camera-url').value;
+            const modelId = parseInt(document.getElementById('mvs-model-id').value) || 0;
+            const detectObjectsStr = document.getElementById('mvs-detect-objects').value;
+            const detectObjects = detectObjectsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+            showLoading('mvs-camera-create-response');
+            try {
+                const body = {
+                    camera_id: cameraId,
+                    camera_url: cameraUrl,
+                    model_id: modelId,
+                    detect_objects: detectObjects
+                };
+
+                const data = await apiRequest(`${API_BASE}/mvs/camera`, 'POST', body);
+                showResponse('mvs-camera-create-response', data);
+            } catch (error) {
+                showResponse('mvs-camera-create-response', { error: error.message }, true);
             }
         }
 

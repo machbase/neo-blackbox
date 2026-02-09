@@ -90,7 +90,10 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		return
 	}
 
-	// Set default paths if not provided or if relative path (not starting with /)
+	// Set default paths
+	// - Empty: use data_dir/{name}/in|out
+	// - Absolute path: use as-is
+	// - Relative path: treat as empty (use data_dir)
 	if req.OutputDir == "" || !filepath.IsAbs(req.OutputDir) {
 		req.OutputDir = filepath.Join(h.dataDir, req.Name, "in")
 	}
@@ -312,19 +315,19 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 	}
 
 	// 2) EventLog: 캐시된 event rules로 DSL 평가 → {table}_event 저장
-	_ = h.evaluateEventRules(c.Request.Context(), config.Table, tsNano, req.Detections, config.EventRule)
+	_ = h.evaluateEventRules(c.Request.Context(), config.Table, config.Name, tsNano, req.Detections, config.EventRule)
 
 	successResponse(c, tick, nil)
 }
 
 // evaluateEventRules evaluates all enabled event rules against detection counts.
 // Returns the number of event rows inserted.
-func (h *Handler) evaluateEventRules(ctx context.Context, cameraID string, tsNano int64, counts map[string]float64, rules []EventRule) int {
+func (h *Handler) evaluateEventRules(ctx context.Context, tableName string, cameraID string, tsNano int64, counts map[string]float64, rules []EventRule) int {
 	if len(rules) == 0 {
 		return 0
 	}
 
-	eventTable := cameraID + "_event"
+	eventTable := tableName + "_event"
 	var events []db.CameraEventRow
 
 	for _, rule := range rules {
@@ -334,7 +337,7 @@ func (h *Handler) evaluateEventRules(ctx context.Context, cameraID string, tsNan
 
 		result, err := dsl.Evaluate(rule.Expression, counts)
 		if err != nil {
-			logger.GetLogger().Errorf("[camera:%s][rule:%s] DSL parse error: %v", cameraID, rule.ID, err)
+			logger.GetLogger().Errorf("[table:%s][rule:%s] DSL parse error: %v", tableName, rule.ID, err)
 			continue
 		}
 
@@ -603,7 +606,10 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 		return
 	}
 
-	// Use absolute path if provided, otherwise use data_dir/{camera_id}/in|out
+	// Set paths:
+	// - Empty: use data_dir/{camera_id}/in|out
+	// - Absolute path: use as-is
+	// - Relative path: treat as empty (use data_dir)
 	outputDir := cam.OutputDir
 	if outputDir == "" || !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(h.dataDir, id, "in")

@@ -176,7 +176,10 @@ func (w *Watcher) prepare() ([]WatcherRule, []RuleFailure) {
 			continue
 		}
 
-		// WatcherRule 생성 - use absolute path if provided, otherwise use DataDir/{camera}/in|out
+		// Set paths:
+		// - Empty: use DataDir/{camera}/in|out
+		// - Absolute path: use as-is
+		// - Relative path: treat as empty (use DataDir)
 		sourceDir := config.OutputDir
 		if sourceDir == "" || !filepath.IsAbs(sourceDir) {
 			sourceDir = filepath.Join(w.DataDir, config.Name, "in")
