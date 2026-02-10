@@ -57,6 +57,25 @@ type CameraCreateRequest struct {
 	EventRule []EventRule `json:"event_rule"` // request에서는 안 받지만, 별도로 eventRule을 받는 API가 있고 CameraCreateRequest의 구조체는 파일에 json으로 저장됨
 }
 
+type CameraUpdateRequest struct {
+	Enabled bool   `json:"enabled"`
+	Desc    string `json:"desc"`
+
+	RtspURL   string `json:"rtsp_url"`
+	WebRTCURL string `json:"webrtc_url"`
+	MediaURL  string `json:"media_url"`
+
+	ModelID       int      `json:"model_id"`
+	DetectObjects []string `json:"detect_objects"`
+	SaveObjects   bool     `json:"save_objects"`
+
+	FFmpegCommand string `json:"ffmpeg_command"`
+	OutputDir     string `json:"output_dir"`
+	ArchiveDir    string `json:"archive_dir"`
+
+	FFmpegOptions []ReqKV `json:"ffmpeg_options"`
+}
+
 type ReqKV struct {
 	K string  `json:"k" binding:"required"`
 	V *string `json:"v"`
@@ -466,18 +485,28 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		return
 	}
 
-	var req CameraCreateRequest
+	var req CameraUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.GetLogger().Errorf("UpdateCamera[%s]: failed to bind JSON: %v", id, err)
 		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
 		return
 	}
 
-	// name과 table은 기존 값 유지 (변경 불가)
-	req.Name = existing.Name
-	req.Table = existing.Table
+	// 기존 설정에 업데이트 필드 반영 (name, table, event_rule은 유지)
+	existing.Enabled = req.Enabled
+	existing.Desc = req.Desc
+	existing.RtspURL = req.RtspURL
+	existing.WebRTCURL = req.WebRTCURL
+	existing.MediaURL = req.MediaURL
+	existing.ModelID = req.ModelID
+	existing.DetectObjects = req.DetectObjects
+	existing.SaveObjects = req.SaveObjects
+	existing.FFmpegCommand = req.FFmpegCommand
+	existing.OutputDir = req.OutputDir
+	existing.ArchiveDir = req.ArchiveDir
+	existing.FFmpegOptions = req.FFmpegOptions
 
-	cameraJSON, err := json.MarshalIndent(req, "", "  ")
+	cameraJSON, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		logger.GetLogger().Errorf("UpdateCamera[%s]: failed to marshal camera config: %v", id, err)
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to marshal camera config")
@@ -503,9 +532,9 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 	// 2. 새 MVS 파일 생성
 	mvs := MvsCameraCreateRequest{
 		CameraID:      id,
-		CameraURL:     req.RtspURL,
-		ModelID:       req.ModelID,
-		DetectObjects: req.DetectObjects,
+		CameraURL:     existing.RtspURL,
+		ModelID:       existing.ModelID,
+		DetectObjects: existing.DetectObjects,
 	}
 
 	mvsJSON, err := json.MarshalIndent(mvs, "", "  ")
@@ -515,7 +544,7 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		return
 	}
 
-	mvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, req.ModelID, time.Now().Unix())
+	mvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, existing.ModelID, time.Now().Unix())
 	mvsPath := filepath.Join(h.mvsDir, mvsFileName)
 	if err := os.WriteFile(mvsPath, mvsJSON, 0644); err != nil {
 		logger.GetLogger().Errorf("UpdateCamera[%s]: failed to write mvs file %q: %v", id, mvsPath, err)

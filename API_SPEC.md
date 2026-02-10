@@ -144,6 +144,7 @@ Response:
 Request:
 ```json
 {
+    "enabled": false,                     // bool - 카메라 활성화 상태
     "desc": "string",                     // 카메라 설명
 
     "rtsp_url": "string",                 // RTSP 스트림 URL
@@ -163,6 +164,10 @@ Request:
     ]
 }
 ```
+
+Note:
+- `name`, `table`, `event_rule`은 변경 불가 (기존 값 유지)
+- 모든 필드는 optional (binding:"required" 없음)
 
 Response:
 ```json
