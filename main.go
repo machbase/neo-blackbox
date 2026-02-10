@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"path/filepath"
+
 	"blackbox-backend/internal/config"
 	"blackbox-backend/internal/db"
 	"blackbox-backend/internal/ffmpeg"
@@ -54,7 +56,8 @@ func run(c context.Context, path string) error {
 		return fmt.Errorf("create machbase client: %w", err)
 	}
 
-	ff := ffmpeg.New(cfg.FFmpeg)
+	logDir := filepath.Dir(cfg.Log.File.Filename)
+	ff := ffmpeg.New(cfg.FFmpeg, logDir)
 	w := watcher.New(neo, ff, cfg.Server.CameraDir)
 
 	svr, err := server.New(cfg.Server, neo, w, cfg.FFmpeg.Binary)

@@ -508,9 +508,16 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name stri
 			timing.StartPTS, timing.LastPTS, timing.LastDur, timing.Length,
 		)
 	}
+	if timing.Length < 0.1 || timing.Length > 30 {
+		logger.GetLogger().Warnf("[CHUNK] abnormal length=%.6f for %s", timing.Length, name)
+	}
 
-	// 날짜 디렉토리 생성
-	dateDir := time.UnixMilli(observedEpochMs).UTC().Format("20060102")
+	// StartPTS = Unix epoch(초) (use_wallclock_as_timestamps=1 기준)
+	startTimeSec := timing.StartPTS
+	utcTimeNs := int64(startTimeSec * 1_000_000_000) // 초 -> 나노초
+
+	// 날짜 디렉토리 생성 (영상 실제 시작 시각 기준)
+	dateDir := time.Unix(0, utcTimeNs).UTC().Format("20060102")
 	finalDir := filepath.Join(rule.TargetDir, dateDir)
 	if err := os.MkdirAll(finalDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir date dir %q: %v", finalDir, err)
@@ -521,9 +528,6 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name stri
 	if err := moveFile(tmpDestPath, finalPath); err != nil {
 		return fmt.Errorf("move into date dir %q -> %q: %v", tmpDestPath, finalPath, err)
 	}
-
-	// observedEpochMs를 나노초로 변환 (실제 관찰 시간)
-	utcTimeNs := observedEpochMs * 1_000_000 // ms -> ns
 
 	// DB에 청크 정보 저장: 카메라별 테이블명, 카메라ID, 실제 UTC 시간, 길이(초), 파일 경로
 	// Table 필드가 없으면 CameraID를 대문자로 변환하여 사용 (하위 호환성)
@@ -542,7 +546,7 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name stri
 		return fmt.Errorf("InsertChunk: %v", err)
 	}
 
-	logger.GetLogger().Infof("[CHUNK] %s -> %s start=%.6f len=%.6f epochMs=%d relPath=%s", name, finalPath, timing.StartPTS, timing.Length, observedEpochMs, relPath)
+	logger.GetLogger().Infof("[CHUNK] %s -> %s start=%.6f len=%.6f utcNs=%d relPath=%s", name, finalPath, startTimeSec, timing.Length, utcTimeNs, relPath)
 
 	return nil
 }

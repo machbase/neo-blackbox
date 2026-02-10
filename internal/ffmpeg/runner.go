@@ -9,18 +9,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 )
 
 type FFmpegRunner struct {
-	cfg config.FFmpegConfig
+	cfg    config.FFmpegConfig
+	logDir string
 }
 
-func New(cfg config.FFmpegConfig) *FFmpegRunner {
+func New(cfg config.FFmpegConfig, logDir string) *FFmpegRunner {
 	return &FFmpegRunner{
-		cfg: cfg,
+		cfg:    cfg,
+		logDir: logDir,
 	}
 }
 
@@ -62,8 +65,25 @@ func (r *FFmpegRunner) Run(ctx context.Context) error {
 
 			cmd := exec.CommandContext(ctx, ffmpegBin, execArgs...)
 			cmd.Dir = cam.OutputDIR
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+
+			if r.logDir != "" {
+				logPath := filepath.Join(r.logDir, fmt.Sprintf("ffmpeg-%s.log", cam.ID))
+				if err := os.MkdirAll(r.logDir, 0o755); err != nil {
+					events <- CamEvent{ID: cam.ID, Index: i, Stage: "log-init", Err: err}
+					return
+				}
+				logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+				if err != nil {
+					events <- CamEvent{ID: cam.ID, Index: i, Stage: "log-init", Err: err}
+					return
+				}
+				defer logFile.Close()
+				cmd.Stdout = logFile
+				cmd.Stderr = logFile
+			} else {
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+			}
 
 			if err := cmd.Run(); err != nil {
 				if ctx.Err() != nil {
