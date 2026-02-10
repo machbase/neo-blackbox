@@ -281,7 +281,7 @@ func (m *Machbase) ChunkRecordForTime(ctx context.Context, tableName string, cam
 		"select /*+ SCAN_FORWARD(%s) */ time, value, chunk_path from %s "+
 			"where name = '%s' "+
 			"and time <= %d "+
-			"and %d <= time + (value * 1000000000) "+
+			"and %d <= to_timestamp(time) + (value * 1000000000) "+
 			"order by time limit 1",
 		safeTable, safeTable, safeCameraID, tsNs, tsNs,
 	)

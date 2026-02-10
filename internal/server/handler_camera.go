@@ -431,7 +431,13 @@ func (h *Handler) GetCamera(c *gin.Context) {
 		return
 	}
 
-	successResponse(c, tick, camera)
+	// Convert camera to map and add camera_id
+	var result map[string]any
+	cameraData, _ := json.Marshal(camera)
+	json.Unmarshal(cameraData, &result)
+	result["camera_id"] = id
+
+	successResponse(c, tick, result)
 }
 
 // UpdateCamera handles POST /api/camera/:id.
