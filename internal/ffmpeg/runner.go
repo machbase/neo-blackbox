@@ -145,12 +145,13 @@ func (r *FFmpegRunner) ProbeConcatPacketTiming(ctx context.Context, initFile str
 	}
 
 	sc := bufio.NewScanner(stdout)
-	var firstLine, lastLine string
+	var firstLine, lastLine, prevLine string
 	for sc.Scan() {
 		line := sc.Text()
 		if firstLine == "" {
 			firstLine = line
 		}
+		prevLine = lastLine
 		lastLine = line
 	}
 	scErr := sc.Err()
@@ -174,7 +175,11 @@ func (r *FFmpegRunner) ProbeConcatPacketTiming(ctx context.Context, initFile str
 	if err != nil {
 		return SegmentTiming{}, fmt.Errorf("parse last pts: %w", err)
 	}
+	// 마지막 패킷의 duration이 N/A인 경우 직전 패킷의 duration으로 대체
 	lastDur, err := parseCSVFloat(lastLine, 1)
+	if err != nil && prevLine != "" {
+		lastDur, err = parseCSVFloat(prevLine, 1)
+	}
 	if err != nil {
 		return SegmentTiming{}, fmt.Errorf("parse last dur: %w", err)
 	}
