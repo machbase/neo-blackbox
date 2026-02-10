@@ -3,8 +3,10 @@ package server
 import (
 	"blackbox-backend/internal/logger"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -229,7 +231,7 @@ func (h *Handler) GetChunkInfo(c *gin.Context) {
 	resp := GetChunkInfoResponse{
 		Camera: cameraID,
 		Time:   formatTime(record.EntryTime),
-		Length: int64(record.Length), // float64 -> int64 변환
+		Length: math.Ceil(record.Length*1000) / 1000, // 소수점 3자리 올림
 	}
 
 	successResponse(c, tick, resp)
@@ -295,11 +297,13 @@ func (h *Handler) GetChunk(c *gin.Context) {
 			return
 		}
 
-		// chunk_path를 직접 사용
-		chunkData, err = os.ReadFile(record.ChunkPath)
+		// archive_dir + 상대경로로 절대경로 복원
+		archiveDir := h.resolveArchiveDir(cameraID)
+		fullPath := filepath.Join(archiveDir, record.ChunkPath)
+		chunkData, err = os.ReadFile(fullPath)
 		if err != nil {
-			logger.GetLogger().Errorf("GetChunk[%s]: failed to read chunk file %q: %v", cameraID, record.ChunkPath, err)
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s' at path '%s'", cameraID, record.ChunkPath))
+			logger.GetLogger().Errorf("GetChunk[%s]: failed to read chunk file %q: %v", cameraID, fullPath, err)
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Segment not found for camera '%s' at path '%s'", cameraID, fullPath))
 			return
 		}
 	}

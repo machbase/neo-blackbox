@@ -533,11 +533,16 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name stri
 	} else {
 		table = strings.ToUpper(table)
 	}
-	if err := w.neo.InsertChunk(ctx, table, rule.CameraID, utcTimeNs, timing.Length, finalPath); err != nil {
+	// archive_dir(TargetDir) 기준 상대경로만 DB에 저장
+	relPath, err := filepath.Rel(rule.TargetDir, finalPath)
+	if err != nil {
+		relPath = finalPath // fallback
+	}
+	if err := w.neo.InsertChunk(ctx, table, rule.CameraID, utcTimeNs, timing.Length, relPath); err != nil {
 		return fmt.Errorf("InsertChunk: %v", err)
 	}
 
-	logger.GetLogger().Infof("[CHUNK] %s -> %s start=%.6f len=%.6f epochMs=%d path=%s", name, finalPath, timing.StartPTS, timing.Length, observedEpochMs, finalPath)
+	logger.GetLogger().Infof("[CHUNK] %s -> %s start=%.6f len=%.6f epochMs=%d relPath=%s", name, finalPath, timing.StartPTS, timing.Length, observedEpochMs, relPath)
 
 	return nil
 }

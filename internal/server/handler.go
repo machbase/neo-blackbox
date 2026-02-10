@@ -307,9 +307,19 @@ func (h *Handler) getCameraFPS(c *gin.Context, camera string) *int {
 	return h.fpsCache[camera]
 }
 
+// resolveArchiveDir returns the archive directory for a camera.
+// Uses camera config's archive_dir if set (absolute path), otherwise defaults to {dataDir}/{camera}/out.
+func (h *Handler) resolveArchiveDir(cameraID string) string {
+	config := h.getCameraConfig(cameraID)
+	if config != nil && config.ArchiveDir != "" && filepath.IsAbs(config.ArchiveDir) {
+		return config.ArchiveDir
+	}
+	return filepath.Join(h.dataDir, cameraID, "out")
+}
+
 // initPath returns the path to the init segment.
 func (h *Handler) initPath(camera string) string {
-	return filepath.Join(h.dataDir, camera, "out", "init-stream0.m4s")
+	return filepath.Join(h.resolveArchiveDir(camera), "init-stream0.m4s")
 }
 
 // chunkPath returns the path to a chunk segment.

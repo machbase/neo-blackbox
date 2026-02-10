@@ -56,7 +56,7 @@ type GetChunkInfoRequest struct {
 type GetChunkInfoResponse struct {
 	Camera string `json:"camera"`
 	Time   string `json:"time"`
-	Length int64  `json:"length"`
+	Length float64 `json:"length"`
 	Sign   *int64 `json:"sign,omitempty"`
 }
 
