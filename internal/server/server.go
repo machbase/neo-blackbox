@@ -123,7 +123,10 @@ func (s *Server) routes() {
 	// ==================================================================
 	// AI
 	api.POST("/ai/result", s.handler.UploadAIResult)
+
 	// ==================================================================
+	// MVS (Machine Vision System)
+	api.POST("/mvs/camera", s.handler.CreateMvsCamera)
 
 	// Web UI - Serve static frontend
 	webDir := filepath.Join(s.cfg.BaseDir, "web")

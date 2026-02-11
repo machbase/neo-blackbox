@@ -322,6 +322,7 @@
                 <div class="nav-section">
                     <h3>Database</h3>
                     <div class="nav-item" data-section="tables-list">테이블 목록</div>
+                    <div class="nav-item" data-section="table-create">테이블 생성</div>
                     <div class="nav-item" data-section="models-list">모델 목록</div>
                     <div class="nav-item" data-section="detect-objects-list">감지 객체 목록</div>
                 </div>
@@ -391,6 +392,19 @@
                     <p class="help-text">Machbase TAG 테이블 목록을 조회합니다. (_event, _log 테이블 제외)</p>
                     <button class="btn btn-primary" onclick="getTables()">조회하기</button>
                     <div class="response-area" id="tables-list-response"></div>
+                </div>
+
+                <!-- Table Create Section -->
+                <div class="api-section" id="table-create">
+                    <h2><span class="method-badge method-post">POST</span> 테이블 생성</h2>
+                    <p class="help-text">새로운 TAG 테이블을 생성합니다. (기본 구조: name, time, value, chunk_path)</p>
+                    <div class="form-group">
+                        <label>Table Name *</label>
+                        <input type="text" id="create-table-name" placeholder="my_table" />
+                        <p class="help-text">영문, 숫자, 언더스코어(_)만 사용 가능</p>
+                    </div>
+                    <button class="btn btn-success" onclick="createTable()">생성하기</button>
+                    <div class="response-area" id="table-create-response"></div>
                 </div>
 
                 <!-- Models List Section -->
@@ -977,6 +991,23 @@ ${JSON.stringify(data, null, 2)}
                 showResponse('tables-list-response', data);
             } catch (error) {
                 showResponse('tables-list-response', { error: error.message }, true);
+            }
+        }
+
+        async function createTable() {
+            const tableName = document.getElementById('create-table-name').value.trim();
+            if (!tableName) {
+                alert('테이블 이름을 입력해주세요.');
+                return;
+            }
+
+            showLoading('table-create-response');
+            try {
+                const body = { table_name: tableName };
+                const data = await apiRequest(`${API_BASE}/table`, 'POST', body);
+                showResponse('table-create-response', data);
+            } catch (error) {
+                showResponse('table-create-response', { error: error.message }, true);
             }
         }
 
