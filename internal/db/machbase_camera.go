@@ -31,7 +31,7 @@ func (m *Machbase) CreateCameraEventTable(ctx context.Context, tableName string)
     name VARCHAR(128) PRIMARY KEY,
     time DATETIME BASETIME,
     value DOUBLE,
-    expression_text VARCHAR(1024),
+    expression_text VARCHAR(200),
     used_counts_snapshot JSON
 ) METADATA (
     camera_id VARCHAR(64),
@@ -85,7 +85,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
     name VARCHAR(128) PRIMARY KEY,
     time DATETIME BASETIME,
     value DOUBLE,
-    expression_text VARCHAR(1024),
+    expression_text VARCHAR(200),
     used_counts_snapshot JSON
 ) METADATA (
     camera_id VARCHAR(64),

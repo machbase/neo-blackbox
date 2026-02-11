@@ -17,7 +17,7 @@ CREATE TAG TABLE {camera}_event (
     name                VARCHAR(128) PRIMARY KEY,  -- camera_id.rule_id
     time                DATETIME BASETIME,         -- tick_time
     value               double,       -- 2/1/0/-1
-    expression_text      VARCHAR(1024),
+    expression_text      VARCHAR(200),
     used_counts_snapshot JSON -- JSON
 ) METADATA (
     camera_id  VARCHAR(64),

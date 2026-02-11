@@ -25,10 +25,12 @@ const (
 	tmpDir     = "tmp"
 )
 
-// Build builds the blackbox-backend binary
+// Build builds the blackbox-backend binary (CGO disabled for static linking)
 func Build() error {
 	mg.Deps(InstallDeps)
-	fmt.Println("Building...")
+	fmt.Println("Building (CGO_ENABLED=0)...")
+
+	os.Setenv("CGO_ENABLED", "0")
 
 	// Create tmp directory if it doesn't exist
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
