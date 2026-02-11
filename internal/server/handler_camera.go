@@ -583,37 +583,96 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		return
 	}
 
-	// MVS 파일 갱신: 기존 파일 삭제 후 새 파일 생성
-	// 1. 기존 MVS 파일 찾아서 삭제
+	// MVS 파일 갱신: 기존 파일 내용 수정 + 필요시 파일명 변경
+	// 1. 기존 MVS 파일 찾기
 	oldMvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
 	oldMvsFiles, _ := filepath.Glob(oldMvsPattern)
-	for _, oldFile := range oldMvsFiles {
-		if err := os.Remove(oldFile); err != nil {
-			logger.GetLogger().Warnf("UpdateCamera[%s]: failed to remove old mvs file %q: %v", id, oldFile, err)
-		}
-	}
 
-	// 2. 새 MVS 파일 생성
-	mvs := MvsCameraCreateRequest{
+	// 2. 새 MVS 데이터 생성
+	newMvs := MvsCameraCreateRequest{
 		CameraID:      id,
 		CameraURL:     existing.RtspURL,
 		ModelID:       existing.ModelID,
 		DetectObjects: existing.DetectObjects,
 	}
 
-	mvsJSON, err := json.MarshalIndent(mvs, "", "  ")
+	newMvsJSON, err := json.MarshalIndent(newMvs, "", "  ")
 	if err != nil {
 		logger.GetLogger().Errorf("UpdateCamera[%s]: failed to marshal mvs data: %v", id, err)
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to marshal mvs data")
 		return
 	}
 
-	mvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, existing.ModelID, time.Now().Unix())
-	mvsPath := filepath.Join(h.mvsDir, mvsFileName)
-	if err := os.WriteFile(mvsPath, mvsJSON, 0644); err != nil {
-		logger.GetLogger().Errorf("UpdateCamera[%s]: failed to write mvs file %q: %v", id, mvsPath, err)
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to write mvs file")
-		return
+	// 3. 기존 파일이 있으면 내용 비교 후 변경 시 파일명 갱신
+	if len(oldMvsFiles) > 0 {
+		oldMvsPath := oldMvsFiles[0] // 첫 번째 파일 사용
+
+		// 기존 파일 읽어서 내용 비교
+		oldData, err := os.ReadFile(oldMvsPath)
+		var contentChanged bool = true // 기본값: 변경됨
+
+		if err != nil {
+			logger.GetLogger().Warnf("UpdateCamera[%s]: failed to read old mvs file %q: %v", id, oldMvsPath, err)
+		} else {
+			var oldMvs MvsCameraCreateRequest
+			if err := json.Unmarshal(oldData, &oldMvs); err == nil {
+				// 내용 비교: camera_url, model_id, detect_objects
+				contentChanged = false
+
+				// camera_url 비교
+				if oldMvs.CameraURL != newMvs.CameraURL {
+					contentChanged = true
+				}
+
+				// model_id 비교
+				if oldMvs.ModelID != newMvs.ModelID {
+					contentChanged = true
+				}
+
+				// detect_objects 배열 비교
+				if len(oldMvs.DetectObjects) != len(newMvs.DetectObjects) {
+					contentChanged = true
+				} else {
+					for i, obj := range oldMvs.DetectObjects {
+						if obj != newMvs.DetectObjects[i] {
+							contentChanged = true
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// 내용이 변경되었으면 파일 내용 업데이트 + 파일명 변경
+		if contentChanged {
+			// 1. 먼저 기존 파일의 내용을 업데이트
+			if err := os.WriteFile(oldMvsPath, newMvsJSON, 0644); err != nil {
+				logger.GetLogger().Errorf("UpdateCamera[%s]: failed to update mvs file %q: %v", id, oldMvsPath, err)
+				errorResponse(c, tick, http.StatusInternalServerError, "failed to update mvs file")
+				return
+			}
+
+			// 2. 새 파일명 생성 (timestamp 갱신)
+			newMvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, newMvs.ModelID, time.Now().Unix())
+			newMvsPath := filepath.Join(h.mvsDir, newMvsFileName)
+
+			// 3. 파일명 변경 (내용은 이미 업데이트됨)
+			if err := os.Rename(oldMvsPath, newMvsPath); err != nil {
+				logger.GetLogger().Errorf("UpdateCamera[%s]: failed to rename mvs file from %q to %q: %v", id, oldMvsPath, newMvsPath, err)
+				errorResponse(c, tick, http.StatusInternalServerError, "failed to rename mvs file")
+				return
+			}
+		}
+		// 내용이 같으면 파일 그대로 유지
+	} else {
+		// 기존 파일이 없으면 새로 생성
+		newMvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, newMvs.ModelID, time.Now().Unix())
+		newMvsPath := filepath.Join(h.mvsDir, newMvsFileName)
+		if err := os.WriteFile(newMvsPath, newMvsJSON, 0644); err != nil {
+			logger.GetLogger().Errorf("UpdateCamera[%s]: failed to write mvs file %q: %v", id, newMvsPath, err)
+			errorResponse(c, tick, http.StatusInternalServerError, "failed to write mvs file")
+			return
+		}
 	}
 
 	// Event rules 캐시 갱신
