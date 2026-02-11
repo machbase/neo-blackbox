@@ -159,7 +159,8 @@ func tokenize(input string) ([]token, error) {
 			case "NOT":
 				tokens = append(tokens, token{tokNOT, word})
 			default:
-				tokens = append(tokens, token{tokIdent, word})
+				// identifier를 소문자로 변환
+				tokens = append(tokens, token{tokIdent, strings.ToLower(word)})
 			}
 			continue
 		}

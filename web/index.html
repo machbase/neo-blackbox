@@ -308,6 +308,62 @@
             color: #6c757d;
             margin-top: 5px;
         }
+
+        .video-container {
+            margin-top: 20px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        .video-player {
+            width: 100%;
+            max-width: 1280px;
+            height: auto;
+            display: block;
+        }
+
+        .video-controls {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .camera-select {
+            width: 100%;
+            max-width: 400px;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .stream-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .stream-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .stream-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .stream-status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -352,11 +408,17 @@
                 </div>
 
                 <div class="nav-section">
+                    <h3>Live Stream</h3>
+                    <div class="nav-item" data-section="live-stream">실시간 스트림</div>
+                </div>
+
+                <div class="nav-section">
                     <h3>Video Chunks</h3>
                     <div class="nav-item" data-section="time-range">시간 범위 조회</div>
                     <div class="nav-item" data-section="chunk-info">청크 정보</div>
                     <div class="nav-item" data-section="chunk-download">청크 다운로드</div>
                     <div class="nav-item" data-section="rollup-info">롤업 정보</div>
+                    <div class="nav-item" data-section="data-gaps">데이터 Gap 분석</div>
                 </div>
 
                 <div class="nav-section">
@@ -602,6 +664,42 @@
                     <div class="response-area" id="media-heartbeat-response"></div>
                 </div>
 
+                <!-- Live Stream Section -->
+                <div class="api-section" id="live-stream">
+                    <h2>📹 실시간 WebRTC 스트림</h2>
+                    <p class="help-text">카메라의 WebRTC 스트림을 실시간으로 시청합니다. (WHEP 프로토콜 사용)</p>
+
+                    <div class="video-controls">
+                        <div class="form-group">
+                            <label>카메라 선택</label>
+                            <select id="stream-camera-select" class="camera-select" onchange="onCameraSelectChange()">
+                                <option value="">카메라를 선택하세요</option>
+                            </select>
+                            <p class="help-text">WebRTC URL이 설정된 카메라만 표시됩니다.</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label>WebRTC URL (WHEP Endpoint)</label>
+                            <input type="text" id="stream-webrtc-url" placeholder="http://localhost:8889/camera1/whep" />
+                            <p class="help-text">MediaMTX WHEP endpoint URL을 입력하세요.</p>
+                        </div>
+
+                        <button class="btn btn-success" onclick="startWebRTCStream()">
+                            🎬 스트림 시작
+                        </button>
+                        <button class="btn btn-danger" onclick="stopWebRTCStream()">
+                            ⏹️ 스트림 중지
+                        </button>
+                        <span id="stream-status" class="stream-status disconnected">연결 끊김</span>
+                    </div>
+
+                    <div class="video-container" id="video-container" style="display: none;">
+                        <video id="stream-video" class="video-player" autoplay playsinline controls muted></video>
+                    </div>
+
+                    <div class="response-area" id="live-stream-response"></div>
+                </div>
+
                 <!-- Time Range Section -->
                 <div class="api-section" id="time-range">
                     <h2><span class="method-badge method-get">GET</span> 시간 범위 조회</h2>
@@ -687,6 +785,43 @@
                     </div>
                     <button class="btn btn-primary" onclick="getRollupInfo()">조회하기</button>
                     <div class="response-area" id="rollup-info-response"></div>
+                </div>
+
+                <!-- Data Gaps Section -->
+                <div class="api-section" id="data-gaps">
+                    <h2><span class="method-badge method-get">GET</span> 데이터 Gap 분석</h2>
+                    <p class="help-text">지정된 간격으로 데이터를 조회하여 빠진 시간대를 분석합니다.</p>
+                    <div class="form-group">
+                        <label>Camera ID *</label>
+                        <input type="text" id="gaps-camera-id" placeholder="camera1" />
+                        <p class="help-text">카메라 설정 파일에서 테이블 이름을 자동으로 가져옵니다.</p>
+                    </div>
+                    <div class="form-group">
+                        <label>Interval (초 단위)</label>
+                        <input type="number" id="gaps-interval" placeholder="5" value="5" min="1" />
+                        <p class="help-text">데이터 조회 간격 (기본값: 5초)</p>
+                    </div>
+                    <div class="form-group">
+                        <label>Start Time (RFC3339) *</label>
+                        <input type="text" id="gaps-start-time" placeholder="2024-01-01T10:00:00Z" />
+                        <div style="margin-top: 5px;">
+                            <button class="btn btn-secondary" onclick="adjustTimeRFC3339('gaps-start-time', -5)">-5초</button>
+                            <button class="btn btn-secondary" onclick="adjustTimeRFC3339('gaps-start-time', 5)">+5초</button>
+                        </div>
+                        <p class="help-text">예: 2024-01-01T10:00:00Z</p>
+                    </div>
+                    <div class="form-group">
+                        <label>End Time (RFC3339) *</label>
+                        <input type="text" id="gaps-end-time" placeholder="2024-01-01T11:00:00Z" />
+                        <div style="margin-top: 5px;">
+                            <button class="btn btn-success" onclick="setCurrentTimeRFC3339('gaps-start-time', 'gaps-end-time')">현재 시간</button>
+                            <button class="btn btn-secondary" onclick="adjustTimeRFC3339('gaps-end-time', -5)">-5초</button>
+                            <button class="btn btn-secondary" onclick="adjustTimeRFC3339('gaps-end-time', 5)">+5초</button>
+                        </div>
+                        <p class="help-text">현재 시간 버튼: Start = 현재, End = 5초 후 (RFC3339 형식)</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="getDataGaps()">조회하기</button>
+                    <div class="response-area" id="data-gaps-response"></div>
                 </div>
 
                 <!-- Sensors List Section -->
@@ -939,6 +1074,45 @@
                 input.value = nanoseconds;
             } catch (error) {
                 alert('날짜 변환 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        // Set current time in RFC3339 format
+        function setCurrentTimeRFC3339(startInputId, endInputId = null) {
+            const now = new Date();
+            document.getElementById(startInputId).value = now.toISOString();
+
+            if (endInputId) {
+                // End time = start time + 5 seconds
+                const endTime = new Date(now.getTime() + 5000); // Add 5 seconds (5000 ms)
+                document.getElementById(endInputId).value = endTime.toISOString();
+            }
+        }
+
+        // Adjust RFC3339 time by seconds
+        function adjustTimeRFC3339(inputId, seconds) {
+            const input = document.getElementById(inputId);
+            const currentValue = input.value.trim();
+
+            if (!currentValue) {
+                alert('시간 값을 먼저 입력해주세요.');
+                return;
+            }
+
+            try {
+                const date = new Date(currentValue);
+                if (isNaN(date.getTime())) {
+                    alert('올바른 RFC3339 시간 형식이 아닙니다.\n예: 2024-01-01T10:00:00Z');
+                    return;
+                }
+
+                // Adjust by seconds (convert seconds to milliseconds)
+                const adjustmentMs = seconds * 1000;
+                const newDate = new Date(date.getTime() + adjustmentMs);
+
+                input.value = newDate.toISOString();
+            } catch (error) {
+                alert('시간 조정 중 오류가 발생했습니다: ' + error.message);
             }
         }
 
@@ -1218,6 +1392,167 @@ ${JSON.stringify(data, null, 2)}
             }
         }
 
+        // WebRTC Live Stream Functions
+        let webrtcPeerConnection = null;
+        let webrtcSessionUrl = null;
+
+        async function loadCamerasForStream() {
+            try {
+                const data = await apiRequest(`${API_BASE}/cameras`);
+                const select = document.getElementById('stream-camera-select');
+                select.innerHTML = '<option value="">카메라를 선택하세요</option>';
+
+                if (data.success && data.data && data.data.cameras) {
+                    data.data.cameras.forEach(camera => {
+                        if (camera.webrtc_url) {
+                            const option = document.createElement('option');
+                            option.value = camera.webrtc_url;
+                            option.textContent = `${camera.camera_name || camera.camera_id} (${camera.camera_id})`;
+                            select.appendChild(option);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load cameras:', error);
+            }
+        }
+
+        function onCameraSelectChange() {
+            const select = document.getElementById('stream-camera-select');
+            const urlInput = document.getElementById('stream-webrtc-url');
+            urlInput.value = select.value;
+        }
+
+        function updateStreamStatus(status, text) {
+            const statusEl = document.getElementById('stream-status');
+            statusEl.className = `stream-status ${status}`;
+            statusEl.textContent = text;
+        }
+
+        async function startWebRTCStream() {
+            const whepUrl = document.getElementById('stream-webrtc-url').value.trim();
+            if (!whepUrl) {
+                alert('WebRTC URL을 입력하세요.');
+                return;
+            }
+
+            try {
+                updateStreamStatus('connecting', '연결 중...');
+                showLoading('live-stream-response');
+
+                // Stop existing connection
+                if (webrtcPeerConnection) {
+                    stopWebRTCStream();
+                }
+
+                // Create RTCPeerConnection
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+
+                webrtcPeerConnection = pc;
+
+                // Add transceivers for receiving audio and video
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                // Handle incoming tracks
+                pc.ontrack = (event) => {
+                    console.log('Received track:', event.track.kind);
+                    const video = document.getElementById('stream-video');
+                    if (video.srcObject !== event.streams[0]) {
+                        video.srcObject = event.streams[0];
+                        document.getElementById('video-container').style.display = 'block';
+                    }
+                };
+
+                // Handle connection state changes
+                pc.onconnectionstatechange = () => {
+                    console.log('Connection state:', pc.connectionState);
+                    if (pc.connectionState === 'connected') {
+                        updateStreamStatus('connected', '연결됨');
+                        showResponse('live-stream-response', {
+                            success: true,
+                            message: 'WebRTC 스트림이 성공적으로 연결되었습니다.'
+                        });
+                    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                        updateStreamStatus('disconnected', '연결 끊김');
+                        showResponse('live-stream-response', {
+                            error: `연결 실패: ${pc.connectionState}`
+                        }, true);
+                    }
+                };
+
+                // Create offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Send offer to WHEP endpoint
+                const response = await fetch(whepUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sdp'
+                    },
+                    body: offer.sdp
+                });
+
+                if (!response.ok) {
+                    throw new Error(`WHEP request failed: ${response.status} ${response.statusText}`);
+                }
+
+                // Get session URL from Location header
+                const location = response.headers.get('Location');
+                if (location) {
+                    webrtcSessionUrl = new URL(location, whepUrl).toString();
+                }
+
+                // Set remote description from answer
+                const answerSdp = await response.text();
+                await pc.setRemoteDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                });
+
+                console.log('WebRTC connection established');
+
+            } catch (error) {
+                console.error('Failed to start WebRTC stream:', error);
+                updateStreamStatus('disconnected', '연결 실패');
+                showResponse('live-stream-response', {
+                    error: error.message
+                }, true);
+                stopWebRTCStream();
+            }
+        }
+
+        async function stopWebRTCStream() {
+            // Close peer connection
+            if (webrtcPeerConnection) {
+                webrtcPeerConnection.close();
+                webrtcPeerConnection = null;
+            }
+
+            // Delete WHEP session if exists
+            if (webrtcSessionUrl) {
+                try {
+                    await fetch(webrtcSessionUrl, { method: 'DELETE' });
+                } catch (error) {
+                    console.error('Failed to delete WHEP session:', error);
+                }
+                webrtcSessionUrl = null;
+            }
+
+            // Clear video
+            const video = document.getElementById('stream-video');
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            document.getElementById('video-container').style.display = 'none';
+
+            updateStreamStatus('disconnected', '연결 끊김');
+        }
+
         // Video Chunk Functions
         async function getTimeRange() {
             const tagname = document.getElementById('timerange-tagname').value;
@@ -1332,6 +1667,33 @@ ${JSON.stringify(data, null, 2)}
                 showResponse('rollup-info-response', data);
             } catch (error) {
                 showResponse('rollup-info-response', { error: error.message }, true);
+            }
+        }
+
+        async function getDataGaps() {
+            const cameraId = document.getElementById('gaps-camera-id').value.trim();
+            const interval = document.getElementById('gaps-interval').value.trim();
+            const startTime = document.getElementById('gaps-start-time').value.trim();
+            const endTime = document.getElementById('gaps-end-time').value.trim();
+
+            if (!cameraId || !startTime || !endTime) {
+                alert('필수 필드를 입력해주세요 (Camera ID, Start Time, End Time).');
+                return;
+            }
+
+            let url = `${API_BASE}/data_gaps?camera_id=${encodeURIComponent(cameraId)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+
+            // Add interval parameter if provided
+            if (interval) {
+                url += `&interval=${encodeURIComponent(interval)}`;
+            }
+
+            showLoading('data-gaps-response');
+            try {
+                const data = await apiRequest(url);
+                showResponse('data-gaps-response', data);
+            } catch (error) {
+                showResponse('data-gaps-response', { error: error.message }, true);
             }
         }
 
@@ -1483,6 +1845,7 @@ ${JSON.stringify(data, null, 2)}
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             getTables();
+            loadCamerasForStream();
         });
     </script>
 </body>

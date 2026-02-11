@@ -483,3 +483,98 @@ func utcNanosecondsToTime(ns int64) time.Time {
 	nsec := ns % 1_000_000_000
 	return time.Unix(sec, nsec).Local()
 }
+
+// GetDataGaps handles GET /api/data_gaps.
+// 5초 간격으로 데이터를 조회하여 빠진 시간대(gap)를 반환합니다.
+func (h *Handler) GetDataGaps(c *gin.Context) {
+	tick := time.Now()
+
+	var req struct {
+		CameraID  string `form:"camera_id" binding:"required"`
+		StartTime string `form:"start_time" binding:"required"` // RFC3339 format
+		EndTime   string `form:"end_time" binding:"required"`   // RFC3339 format
+		Interval  int    `form:"interval"`                      // seconds (default: 5)
+	}
+
+	if err := c.ShouldBindQuery(&req); err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, "Missing required parameters: camera_id, start_time, end_time")
+		return
+	}
+
+	// Set default interval if not provided or invalid
+	if req.Interval <= 0 {
+		req.Interval = 5
+	}
+
+	// Get camera config to retrieve table name
+	config := h.getCameraConfig(req.CameraID)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Camera '%s' not found", req.CameraID))
+		return
+	}
+
+	// Parse time strings
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, fmt.Sprintf("Invalid start_time format (use RFC3339): %v", err))
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, fmt.Sprintf("Invalid end_time format (use RFC3339): %v", err))
+		return
+	}
+
+	if endTime.Before(startTime) {
+		errorResponse(c, tick, http.StatusBadRequest, "end_time must be after start_time")
+		return
+	}
+
+	// Get rollup data from Machbase
+	ctx := c.Request.Context()
+	tableName := config.Table
+	data, err := h.machbase.GetRollupData(ctx, tableName, req.CameraID, startTime, endTime, req.Interval)
+	if err != nil {
+		logger.GetLogger().Errorf("GetDataGaps: failed to query rollup data: %v", err)
+		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("Failed to query data: %v", err))
+		return
+	}
+
+	// Create a map of existing timestamps
+	existingTimes := make(map[int64]bool)
+	for _, row := range data {
+		existingTimes[row.Time.Unix()] = true
+	}
+
+	// Generate expected intervals
+	var gaps []string
+	intervalDuration := time.Duration(req.Interval) * time.Second
+
+	// Round start time down to interval boundary (start_time이 속한 버킷부터 시작)
+	startUnix := startTime.Unix()
+	startAligned := (startUnix / int64(req.Interval)) * int64(req.Interval)
+	currentTime := time.Unix(startAligned, 0)
+
+	for currentTime.Before(endTime) || currentTime.Equal(endTime) {
+		// start_time 이후의 시간만 gap에 추가 (초 단위 비교, 밀리초 무시)
+		if !existingTimes[currentTime.Unix()] && currentTime.Unix() >= startUnix {
+			gaps = append(gaps, formatTime(currentTime))
+		}
+		currentTime = currentTime.Add(intervalDuration)
+	}
+
+	// If no gaps, return empty array
+	if gaps == nil {
+		gaps = []string{}
+	}
+
+	successResponse(c, tick, map[string]any{
+		"camera_id":     req.CameraID,
+		"start_time":    req.StartTime,
+		"end_time":      req.EndTime,
+		"interval":      req.Interval,
+		"total_gaps":    len(gaps),
+		"missing_times": gaps,
+	})
+}

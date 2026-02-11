@@ -42,6 +42,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(httpLogger())
 	engine.Use(cors())
 
 	var ffBinary string
@@ -83,6 +84,7 @@ func (s *Server) routes() {
 	api.GET("/get_chunk_info", s.handler.GetChunkInfo)
 	api.GET("/v_get_chunk", s.handler.GetChunk)
 	api.GET("/get_camera_rollup_info", s.handler.GetCameraRollup)
+	api.GET("/data_gaps", s.handler.GetDataGaps)
 
 	// Sensor
 	api.GET("/sensors", s.handler.GetSensors)
@@ -181,6 +183,31 @@ func cors() gin.HandlerFunc {
 			return
 		}
 		c.Next()
+	}
+}
+
+// httpLogger returns a Gin middleware that logs HTTP requests to a separate file
+func httpLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Start timer
+		start := c.Value("start")
+		if start == nil {
+			c.Set("start", c.Request.Context().Value("start"))
+		}
+
+		// Process request
+		c.Next()
+
+		// Log request details
+		httpLog := logger.GetHTTPLogger()
+		httpLog.WithFields(map[string]interface{}{
+			"method":     c.Request.Method,
+			"path":       c.Request.URL.Path,
+			"query":      c.Request.URL.RawQuery,
+			"status":     c.Writer.Status(),
+			"client_ip":  c.ClientIP(),
+			"user_agent": c.Request.UserAgent(),
+		}).Info("HTTP Request")
 	}
 }
 

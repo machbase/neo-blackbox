@@ -298,12 +298,12 @@ func parseTimeToken(raw string) (time.Time, error) {
 
 // formatTime formats a time value for response.
 func formatTime(t time.Time) string {
-	s := t.Local().Format("2006-01-02T15:04:05.000000")
+	s := t.UTC().Format("2006-01-02T15:04:05.000000")
 	if idx := strings.Index(s, "."); idx != -1 {
 		s = strings.TrimRight(s, "0")
 		s = strings.TrimRight(s, ".")
 	}
-	return s
+	return s + "Z"
 }
 
 // resolvePrefix resolves the chunk prefix for a camera.

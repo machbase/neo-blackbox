@@ -587,6 +587,47 @@ Response:
 
 ---
 
+## GET /api/data_gaps?camera_id={camera_id}&start_time={start_time}&end_time={end_time}&interval={interval}
+
+데이터 Gap 분석 - 지정된 간격으로 빠진 시간대 조회
+
+Query Parameters:
+- `camera_id` (required): 카메라 ID (카메라 설정 파일에서 테이블 이름 자동 조회)
+- `start_time` (required): 시작 시간 (RFC3339 형식, 예: "2024-01-01T10:00:00Z")
+- `end_time` (required): 종료 시간 (RFC3339 형식, 예: "2024-01-01T11:00:00Z")
+- `interval` (optional): 조회 간격 (초 단위, 기본값: 5)
+
+Response:
+```json
+{
+    "camera_id": "string",                // 카메라 ID
+    "start_time": "string",               // 시작 시간 (RFC3339 형식)
+    "end_time": "string",                 // 종료 시간 (RFC3339 형식)
+    "interval": 5,                        // int - 조회 간격 (초)
+    "total_gaps": 0,                      // int - 빠진 시간대 개수
+    "missing_times": ["string"]           // []string - 빠진 시간대 목록 (RFC3339 형식)
+}
+```
+
+Note:
+- 카메라 설정 파일(JSON)에서 테이블 이름을 자동으로 가져옴
+- `interval` 파라미터로 지정된 간격(초)으로 rollup 쿼리를 실행하여 실제 데이터를 조회
+- 시작~종료 시간 사이의 예상 시간대(지정 간격)를 생성
+- 실제 데이터에 없는 시간대만 `missing_times`에 반환
+- 빈 배열(`[]`)은 모든 시간대에 데이터가 존재함을 의미
+- `interval`을 생략하거나 0 이하 값을 입력하면 기본값 5초 사용
+
+**타임존 처리**:
+- 모든 시간은 **RFC3339 형식**으로 처리됨 (타임존 포함)
+- 입력 예시:
+  - `2024-01-01T10:00:00Z` (UTC 시간)
+  - `2024-01-01T19:00:00+09:00` (한국 시간, 서버에서 자동으로 UTC로 변환)
+- 출력은 항상 **UTC (Z 접미사)**로 반환됨
+- 프론트엔드에서는 UTC로 전송하거나, 로컬 타임존을 명시하여 전송 가능
+- JavaScript: `new Date().toISOString()` 사용 시 자동으로 UTC 변환됨
+
+---
+
 ## GET /api/sensors?tagname={tagname}
 
 카메라의 센서 목록 조회

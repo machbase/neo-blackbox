@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"blackbox-backend/internal/logger"
@@ -97,6 +98,9 @@ func (h *Handler) PostEventRules(c *gin.Context) {
 		}
 	}
 
+	// expression_text를 소문자로 변환
+	req.Rule.Expression = strings.ToLower(req.Rule.Expression)
+
 	// EventRule 추가
 	camera.EventRule = append(camera.EventRule, req.Rule)
 
@@ -168,6 +172,9 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
 		return
 	}
+
+	// expression_text를 소문자로 변환
+	rule.Expression = strings.ToLower(rule.Expression)
 
 	// rule_id 찾아서 수정
 	found := false

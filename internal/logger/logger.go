@@ -12,6 +12,7 @@ import (
 )
 
 var Log *logrus.Logger
+var HTTPLog *logrus.Logger
 
 // Init initializes the global logger with logrus and lumberjack
 func Init(cfg config.LogConfig) error {
@@ -94,6 +95,52 @@ func Init(cfg config.LogConfig) error {
 
 	Log.Info("Logger initialized successfully")
 	return nil
+}
+
+// InitHTTPLogger initializes a separate logger for HTTP requests
+func InitHTTPLogger(logDir string) error {
+	HTTPLog = logrus.New()
+	HTTPLog.SetLevel(logrus.InfoLevel)
+
+	// Use text format for HTTP logs
+	HTTPLog.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+		DisableColors:   true,
+	})
+
+	// Create log directory if not exists
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return err
+	}
+
+	// Setup lumberjack for HTTP log rotation
+	httpLogPath := filepath.Join(logDir, "blackbox-http.log")
+	fileWriter := &lumberjack.Logger{
+		Filename:   httpLogPath,
+		MaxSize:    100, // MB
+		MaxBackups: 5,
+		MaxAge:     30, // days
+		Compress:   true,
+	}
+
+	HTTPLog.SetOutput(fileWriter)
+	HTTPLog.Info("HTTP Logger initialized")
+	return nil
+}
+
+// GetHTTPLogger returns the HTTP logger instance
+func GetHTTPLogger() *logrus.Logger {
+	if HTTPLog == nil {
+		// Fallback to default logger if not initialized
+		HTTPLog = logrus.New()
+		HTTPLog.SetLevel(logrus.InfoLevel)
+		HTTPLog.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: "2006-01-02 15:04:05",
+		})
+	}
+	return HTTPLog
 }
 
 // GetLogger returns the global logger instance

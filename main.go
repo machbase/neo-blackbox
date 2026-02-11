@@ -60,6 +60,11 @@ func run(c context.Context, path string) error {
 	if logDir == "" {
 		logDir = filepath.Dir(cfg.Log.File.Filename)
 	}
+
+	// Initialize HTTP logger
+	if err := logger.InitHTTPLogger(logDir); err != nil {
+		return fmt.Errorf("init http logger: %w", err)
+	}
 	ff := ffmpeg.New(cfg.FFmpeg, logDir)
 	w := watcher.New(neo, ff, cfg.Server.CameraDir)
 

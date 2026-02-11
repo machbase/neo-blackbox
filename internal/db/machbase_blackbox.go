@@ -233,28 +233,78 @@ func (m *Machbase) ListTags(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
-// ListTables fetches TAG table names from Machbase, excluding _event and _log suffixed tables.
+// ListTables fetches TAG table names from Machbase that match the video chunk table schema.
+// Only returns tables with columns: name, time, value, chunk_path
+// Excludes _event and _log suffixed tables.
 func (m *Machbase) ListTables(ctx context.Context) ([]string, error) {
-	sql := "SELECT NAME FROM M$SYS_TABLES WHERE TYPE = 6 ORDER BY NAME"
+	// First, get all TAG tables (TYPE = 6) with their IDs
+	sql := "SELECT ID, NAME FROM M$SYS_TABLES WHERE TYPE = 6 ORDER BY NAME"
 	resp, err := m.Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
 
-	var rows []struct {
+	var tableRows []struct {
+		ID   int64  `json:"ID"`
 		Name string `json:"NAME"`
 	}
-	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
+	if err := json.Unmarshal(resp.Data.Rows, &tableRows); err != nil {
 		return nil, err
 	}
 
 	var tables []string
-	for _, r := range rows {
-		name := strings.ToLower(r.Name)
+	// Check each table's column structure
+	for _, tbl := range tableRows {
+		name := strings.ToLower(tbl.Name)
+
+		// Skip _event and _log tables
 		if strings.HasSuffix(name, "_event") || strings.HasSuffix(name, "_log") {
 			continue
 		}
-		tables = append(tables, name)
+
+		// Get columns for this table
+		columnSQL := fmt.Sprintf("SELECT NAME FROM M$SYS_COLUMNS WHERE TABLE_ID = %d ORDER BY NAME", tbl.ID)
+		columnResp, err := m.Query(ctx, columnSQL)
+		if err != nil {
+			logger.GetLogger().Warnf("ListTables: failed to query columns for table %s: %v", name, err)
+			continue
+		}
+
+		var columnRows []struct {
+			Name string `json:"NAME"`
+		}
+		if err := json.Unmarshal(columnResp.Data.Rows, &columnRows); err != nil {
+			logger.GetLogger().Warnf("ListTables: failed to parse columns for table %s: %v", name, err)
+			continue
+		}
+
+		// Check if table has the required columns: name, time, value, chunk_path
+		requiredColumns := map[string]bool{
+			"NAME":       false,
+			"TIME":       false,
+			"VALUE":      false,
+			"CHUNK_PATH": false,
+		}
+
+		for _, col := range columnRows {
+			upperName := strings.ToUpper(col.Name)
+			if _, exists := requiredColumns[upperName]; exists {
+				requiredColumns[upperName] = true
+			}
+		}
+
+		// Only include table if all required columns are present
+		hasAllColumns := true
+		for _, found := range requiredColumns {
+			if !found {
+				hasAllColumns = false
+				break
+			}
+		}
+
+		if hasAllColumns {
+			tables = append(tables, name)
+		}
 	}
 	return tables, nil
 }
@@ -352,6 +402,54 @@ func (m *Machbase) CameraRollup(ctx context.Context, tableName string, cameraID 
 		result[i] = RollupRow{
 			Time:      time.Unix(0, r.Time),
 			SumLength: r.TotalLength,
+		}
+	}
+	return result, nil
+}
+
+// DataGapRow represents a single time point from rollup query.
+type DataGapRow struct {
+	Time  time.Time `json:"time"`
+	Count int       `json:"count"`
+}
+
+// GetRollupData fetches data with 5-second rollup interval.
+// tableName: the table name (e.g., "camera1")
+// cameraID: the camera ID stored in the 'name' column
+// start, end: time range in nanoseconds
+func (m *Machbase) GetRollupData(ctx context.Context, tableName string, cameraID string, start, end time.Time, interval int) ([]DataGapRow, error) {
+	safeTable := escapeSQLLiteral(tableName)
+	safeCameraID := escapeSQLLiteral(cameraID)
+	startNs := start.UnixNano()
+	endNs := end.UnixNano()
+
+	sql := fmt.Sprintf(
+		"SELECT rollup('sec', %d, time) as time, count(value) as value "+
+			"FROM %s WHERE name = '%s' AND time BETWEEN %d AND %d "+
+			"GROUP BY time ORDER BY time",
+		interval, safeTable, safeCameraID, startNs, endNs,
+	)
+
+	logger.GetLogger().Debugf("GetRollupData SQL: %s", sql)
+
+	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []struct {
+		Time  int64 `json:"TIME"`
+		Value int   `json:"VALUE"`
+	}
+	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
+		return nil, err
+	}
+
+	result := make([]DataGapRow, len(rows))
+	for i, r := range rows {
+		result[i] = DataGapRow{
+			Time:  time.Unix(0, r.Time),
+			Count: r.Value,
 		}
 	}
 	return result, nil

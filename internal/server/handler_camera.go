@@ -229,6 +229,12 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 	// 4. Event rules 캐시 초기화
 	h.refreshCameraConfigCache(req.Name)
 
+	// 5. Automatically enable camera (start ffmpeg process)
+	if err := h.enableCameraInternal(c.Request.Context(), req.Name, &req); err != nil {
+		logger.GetLogger().Warnf("CreateCamera[%s]: camera created but failed to start: %v", req.Name, err)
+		// Don't fail the request - camera was created successfully
+	}
+
 	successResponse(c, tick, CreateCameraResponse{
 		CameraID: req.Name,
 	})
@@ -350,10 +356,16 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 		return
 	}
 
+	// Detections map의 key를 소문자로 변환 (DSL과 일관성 유지)
+	normalizedDetections := make(map[string]float64, len(req.Detections))
+	for ident, value := range req.Detections {
+		normalizedDetections[strings.ToLower(ident)] = value
+	}
+
 	// 1) OR_LOG: SaveObjects가 true일 때만 detections → {table}_log 테이블에 저장
 	if config.SaveObjects {
-		logs := make([]db.CameraLogRow, 0, len(req.Detections))
-		for ident, value := range req.Detections {
+		logs := make([]db.CameraLogRow, 0, len(normalizedDetections))
+		for ident, value := range normalizedDetections {
 			logs = append(logs, db.CameraLogRow{
 				Name:     config.Table + "." + ident,
 				Time:     tsNano,
@@ -371,7 +383,7 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 	}
 
 	// 2) EventLog: 캐시된 event rules로 DSL 평가 → {table}_event 저장
-	_ = h.evaluateEventRules(c.Request.Context(), config.Table, config.Name, tsNano, req.Detections, config.EventRule)
+	_ = h.evaluateEventRules(c.Request.Context(), config.Table, config.Name, tsNano, normalizedDetections, config.EventRule)
 
 	successResponse(c, tick, nil)
 }
@@ -728,71 +740,53 @@ func (h *Handler) TestCameraConnection(c *gin.Context) {
 	errorResponse(c, tick, http.StatusNotImplemented, "not implemented")
 }
 
-// EnableCamera handles POST /api/camera/:id/enable.
-// 카메라 설정파일을 읽어서 ffmpeg 프로세스를 시작.
-func (h *Handler) EnableCamera(c *gin.Context) {
-	tick := time.Now()
-	id := c.Param("id")
-
-	// 이미 실행 중인지 확인
+// enableCameraInternal starts ffmpeg process and watcher for a camera.
+// If cam is nil, it will read the camera config from file.
+func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *CameraCreateRequest) error {
+	// Check if already running
 	h.processMu.Lock()
 	if _, running := h.processes[id]; running {
 		h.processMu.Unlock()
-		errorResponse(c, tick, http.StatusConflict, fmt.Sprintf("camera '%s' is already running", id))
-		return
+		return fmt.Errorf("camera '%s' is already running", id)
 	}
 	h.processMu.Unlock()
 
-	// 카메라 설정 파일 읽기
-	cameraPath := filepath.Join(h.cameraDir, id+".json")
-	data, err := os.ReadFile(cameraPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logger.GetLogger().Errorf("EnableCamera[%s]: camera config file not found: %s", id, cameraPath)
-			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", id))
-			return
+	// Load camera config if not provided
+	if cam == nil {
+		cameraPath := filepath.Join(h.cameraDir, id+".json")
+		data, err := os.ReadFile(cameraPath)
+		if err != nil {
+			return fmt.Errorf("failed to read camera config: %w", err)
 		}
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to read camera config: %v", id, err)
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to read camera config")
-		return
-	}
 
-	var cam CameraCreateRequest
-	if err := json.Unmarshal(data, &cam); err != nil {
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to parse camera config: %v", id, err)
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to parse camera config")
-		return
+		var config CameraCreateRequest
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("failed to parse camera config: %w", err)
+		}
+		cam = &config
 	}
 
 	if cam.RtspURL == "" {
-		logger.GetLogger().Errorf("EnableCamera[%s]: camera has no rtsp_url configured", id)
-		errorResponse(c, tick, http.StatusBadRequest, "camera has no rtsp_url configured")
-		return
+		return fmt.Errorf("camera has no rtsp_url configured")
 	}
 
-	// Resolve ffmpeg binary with priority: camera config → server config → system PATH
-	ffmpegBin := "ffmpeg" // default to system PATH
+	// Resolve ffmpeg binary
+	ffmpegBin := "ffmpeg"
 	if cam.FFmpegCommand != "" {
 		ffmpegBin = cam.FFmpegCommand
 	} else if h.ffmpegBinary != "" {
 		ffmpegBin = h.ffmpegBinary
 	}
 
-	// Validate required paths
+	// Validate paths
 	if cam.OutputDir == "" {
-		logger.GetLogger().Errorf("EnableCamera[%s]: output_dir not configured", id)
-		errorResponse(c, tick, http.StatusBadRequest, "output_dir not configured in camera config")
-		return
+		return fmt.Errorf("output_dir not configured")
 	}
 	if cam.ArchiveDir == "" {
-		logger.GetLogger().Errorf("EnableCamera[%s]: archive_dir not configured", id)
-		errorResponse(c, tick, http.StatusBadRequest, "archive_dir not configured in camera config")
-		return
+		return fmt.Errorf("archive_dir not configured")
 	}
 
-	// Resolve paths:
-	// - Absolute path: use as-is
-	// - Relative path: join with data_dir
+	// Resolve paths
 	outputDir := cam.OutputDir
 	if !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(h.dataDir, outputDir)
@@ -803,33 +797,27 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 		archiveDir = filepath.Join(h.dataDir, archiveDir)
 	}
 
-	// output_dir 준비
+	// Create output directory
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to create output directory %q: %v", id, outputDir, err)
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to create output directory")
-		return
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// ffmpeg 인자 빌드
-	args := buildFFmpegArgs(cam)
+	// Build ffmpeg args
+	args := buildFFmpegArgs(*cam)
 
-	// ffmpeg 로그 파일 생성 (log.dir 안에 저장)
+	// Create log file
 	if err := os.MkdirAll(h.logDir, 0755); err != nil {
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to create log directory %q: %v", id, h.logDir, err)
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to create log directory")
-		return
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 	logFilePath := filepath.Join(h.logDir, id+"_ffmpeg.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to create log file %q: %v", id, logFilePath, err)
-		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("failed to create log file: %v", err))
-		return
+		return fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	// ffmpeg 프로세스 시작
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, ffmpegBin, args...)
+	// Start ffmpeg process
+	cmdCtx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(cmdCtx, ffmpegBin, args...)
 	cmd.Dir = outputDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -839,16 +827,14 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 	if err := cmd.Start(); err != nil {
 		cancel()
 		logFile.Close()
-		logger.GetLogger().Errorf("EnableCamera[%s]: failed to start ffmpeg: %v", id, err)
-		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("failed to start ffmpeg: %v", err))
-		return
+		return fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 
 	h.processMu.Lock()
 	h.processes[id] = &cameraProcess{cmd: cmd, cancel: cancel, startedAt: time.Now()}
 	h.processMu.Unlock()
 
-	// watcher에 rule 추가 (ffmpeg가 생성하는 파일을 감시)
+	// Add watcher rule
 	rule := watcher.WatcherRule{
 		CameraID:  id,
 		Table:     cam.Table,
@@ -857,51 +843,28 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 		Ext:       ".m4s",
 	}
 
-	if err := h.watcher.AddWatch(c.Request.Context(), rule); err != nil {
-		// watcher 추가 실패 시 ffmpeg 중지 (rollback)
+	if err := h.watcher.AddWatch(ctx, rule); err != nil {
+		// Rollback: stop ffmpeg
 		logger.GetLogger().Errorf("[camera:%s] failed to add watcher, stopping ffmpeg: %v", id, err)
 		cancel()
 		h.processMu.Lock()
 		delete(h.processes, id)
 		h.processMu.Unlock()
-		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("failed to add watcher: %v", err))
-		return
+		return fmt.Errorf("failed to add watcher: %w", err)
 	}
 
-	// MVS 파일 생성 (detection 프로그램이 활성 카메라를 인식하도록)
-	if err := os.MkdirAll(h.mvsDir, 0755); err != nil {
-		logger.GetLogger().Warnf("EnableCamera[%s]: failed to create mvs directory: %v", id, err)
-	} else {
-		mvs := MvsCameraCreateRequest{
-			CameraID:      id,
-			CameraURL:     cam.RtspURL,
-			ModelID:       cam.ModelID,
-			DetectObjects: cam.DetectObjects,
-		}
-		mvsJSON, err := json.MarshalIndent(mvs, "", "  ")
-		if err != nil {
-			logger.GetLogger().Warnf("EnableCamera[%s]: failed to marshal mvs data: %v", id, err)
-		} else {
-			mvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, cam.ModelID, time.Now().Unix())
-			mvsPath := filepath.Join(h.mvsDir, mvsFileName)
-			if err := os.WriteFile(mvsPath, mvsJSON, 0644); err != nil {
-				logger.GetLogger().Warnf("EnableCamera[%s]: failed to write mvs file: %v", id, err)
-			}
-		}
-	}
-
-	// 프로세스 종료 감시 (비동기)
+	// Monitor process termination (async)
 	go func() {
 		err := cmd.Wait()
 
-		// 로그 파일 닫기
+		// Close log file
 		logFile.Close()
 
 		h.processMu.Lock()
 		delete(h.processes, id)
 		h.processMu.Unlock()
 
-		// ffmpeg 종료 시 watcher도 제거
+		// Remove watcher when ffmpeg exits
 		if err := h.watcher.RemoveWatch(context.Background(), id); err != nil {
 			logger.GetLogger().Errorf("[camera:%s] failed to remove watcher: %v", id, err)
 		}
@@ -913,9 +876,46 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 		}
 	}()
 
+	return nil
+}
+
+// EnableCamera handles POST /api/camera/:id/enable.
+// 카메라 설정파일을 읽어서 ffmpeg 프로세스를 시작.
+func (h *Handler) EnableCamera(c *gin.Context) {
+	tick := time.Now()
+	id := c.Param("id")
+
+	// Use internal function to enable camera
+	if err := h.enableCameraInternal(c.Request.Context(), id, nil); err != nil {
+		if strings.Contains(err.Error(), "already running") {
+			errorResponse(c, tick, http.StatusConflict, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "failed to read") {
+			errorResponse(c, tick, http.StatusNotFound, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not configured") || strings.Contains(err.Error(), "no rtsp_url") {
+			errorResponse(c, tick, http.StatusBadRequest, err.Error())
+			return
+		}
+		logger.GetLogger().Errorf("EnableCamera[%s]: %v", id, err)
+		errorResponse(c, tick, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Get PID from process map
+	h.processMu.Lock()
+	proc, ok := h.processes[id]
+	var pid int
+	if ok {
+		pid = proc.cmd.Process.Pid
+	}
+	h.processMu.Unlock()
+
 	successResponse(c, tick, map[string]any{
 		"name":   id,
-		"pid":    cmd.Process.Pid,
+		"pid":    pid,
 		"status": "running",
 	})
 }
