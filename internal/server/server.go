@@ -28,7 +28,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // New creates a new Server.
-func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, machbase *db.Machbase, watcher Watcher, ffmpegBinary ...string) (*Server, error) {
+func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir string, machbase *db.Machbase, watcher Watcher, ffmpegBinary ...string) (*Server, error) {
 	cfg.ApplyDefaults()
 
 	if cfg.BaseDir == "" {
@@ -52,7 +52,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, machbase *d
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, cfg.DataDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
+		handler: NewHandler(machbase, watcher, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
 	}
 	s.routes()
 

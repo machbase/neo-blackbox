@@ -55,6 +55,7 @@ type Handler struct {
 	machbase       *db.Machbase
 	watcher        Watcher // watcher interface for dynamic watch management
 	dataDir        string
+	logDir         string // log directory (ffmpeg logs etc.)
 	mvsDir         string
 	cameraDir      string
 	ffmpegBinary   string
@@ -80,14 +81,18 @@ type Watcher interface {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
+func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
 	if dataDir == "" {
 		dataDir = "/data"
+	}
+	if logDir == "" {
+		logDir = "/var/log/blackbox"
 	}
 	h := &Handler{
 		machbase:      machbase,
 		watcher:       watcher,
 		dataDir:       dataDir,
+		logDir:        logDir,
 		mvsDir:        mvsDir,
 		cameraDir:     cameraDir,
 		ffmpegBinary:  ffmpegBinary,

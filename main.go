@@ -56,11 +56,14 @@ func run(c context.Context, path string) error {
 		return fmt.Errorf("create machbase client: %w", err)
 	}
 
-	logDir := filepath.Dir(cfg.Log.File.Filename)
+	logDir := cfg.Log.Dir
+	if logDir == "" {
+		logDir = filepath.Dir(cfg.Log.File.Filename)
+	}
 	ff := ffmpeg.New(cfg.FFmpeg, logDir)
 	w := watcher.New(neo, ff, cfg.Server.CameraDir)
 
-	svr, err := server.New(cfg.Server, cfg.Mediamtx, neo, w, cfg.FFmpeg.Binary)
+	svr, err := server.New(cfg.Server, cfg.Mediamtx, logDir, neo, w, cfg.FFmpeg.Binary)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}

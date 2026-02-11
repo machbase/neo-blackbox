@@ -15,6 +15,7 @@ type AppConfig struct {
 }
 
 type LogConfig struct {
+	Dir    string        `yaml:"dir"`    // log directory (all log files go here)
 	Level  string        `yaml:"level"`  // debug, info, warn, error, fatal, panic
 	Format string        `yaml:"format"` // json or text
 	Output string        `yaml:"output"` // stdout, file, both

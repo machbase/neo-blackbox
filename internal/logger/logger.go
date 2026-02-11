@@ -36,6 +36,12 @@ func Init(cfg config.LogConfig) error {
 		})
 	}
 
+	// Build full log file path: dir + filename
+	logFilePath := cfg.File.Filename
+	if cfg.Dir != "" {
+		logFilePath = filepath.Join(cfg.Dir, cfg.File.Filename)
+	}
+
 	// Set output
 	var writers []io.Writer
 
@@ -44,14 +50,14 @@ func Init(cfg config.LogConfig) error {
 		writers = append(writers, os.Stdout)
 	case "file":
 		// Create log directory if not exists
-		logDir := filepath.Dir(cfg.File.Filename)
+		logDir := filepath.Dir(logFilePath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			return err
 		}
 
 		// Setup lumberjack for log rotation
 		fileWriter := &lumberjack.Logger{
-			Filename:   cfg.File.Filename,
+			Filename:   logFilePath,
 			MaxSize:    cfg.File.MaxSize,
 			MaxBackups: cfg.File.MaxBackups,
 			MaxAge:     cfg.File.MaxAge,
@@ -62,13 +68,13 @@ func Init(cfg config.LogConfig) error {
 		writers = append(writers, os.Stdout)
 
 		// Create log directory if not exists
-		logDir := filepath.Dir(cfg.File.Filename)
+		logDir := filepath.Dir(logFilePath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			return err
 		}
 
 		fileWriter := &lumberjack.Logger{
-			Filename:   cfg.File.Filename,
+			Filename:   logFilePath,
 			MaxSize:    cfg.File.MaxSize,
 			MaxBackups: cfg.File.MaxBackups,
 			MaxAge:     cfg.File.MaxAge,

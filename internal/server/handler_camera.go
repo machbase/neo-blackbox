@@ -36,7 +36,7 @@ type MvsCameraCreateRequest struct {
 
 // 이 구조체는 테이블이 아닌 파일로 저장이됨, JSON형식
 type CameraCreateRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
 	Table   string `json:"table" binding:"required"`
 	Name    string `json:"name" binding:"required"`
 	Desc    string `json:"desc"`
@@ -764,8 +764,13 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 	// ffmpeg 인자 빌드
 	args := buildFFmpegArgs(cam)
 
-	// ffmpeg 로그 파일 생성
-	logFilePath := filepath.Join(h.dataDir, id, id+"_ffmpeg.log")
+	// ffmpeg 로그 파일 생성 (log.dir 안에 저장)
+	if err := os.MkdirAll(h.logDir, 0755); err != nil {
+		logger.GetLogger().Errorf("EnableCamera[%s]: failed to create log directory %q: %v", id, h.logDir, err)
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to create log directory")
+		return
+	}
+	logFilePath := filepath.Join(h.logDir, id+"_ffmpeg.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		logger.GetLogger().Errorf("EnableCamera[%s]: failed to create log file %q: %v", id, logFilePath, err)
