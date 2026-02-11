@@ -6,6 +6,7 @@ ffprobe
 dist
 tmp
 *.txt
+!qa.txt
 .env
 logs/*
 .md

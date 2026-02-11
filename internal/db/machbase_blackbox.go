@@ -423,6 +423,7 @@ func (m *Machbase) GetRollupData(ctx context.Context, tableName string, cameraID
 	startNs := start.UnixNano()
 	endNs := end.UnixNano()
 
+	// Origin 생략 (Machbase 기본값 사용, 핸들러에서 실제 데이터로 추론)
 	sql := fmt.Sprintf(
 		"SELECT rollup('sec', %d, time) as time, count(value) as value "+
 			"FROM %s WHERE name = '%s' AND time BETWEEN %d AND %d "+
