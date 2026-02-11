@@ -49,13 +49,10 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, machbase *d
 		ffBinary = ffmpegBinary[0]
 	}
 
-	// object.txt path (BaseDir/object.txt)
-	objectFile := filepath.Join(cfg.BaseDir, "object.txt")
-
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, cfg.DataDir, cfg.MvsDir, cfg.CameraDir, ffBinary, objectFile, mediamtxCfg.Host, mediamtxCfg.Port),
+		handler: NewHandler(machbase, watcher, cfg.DataDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
 	}
 	s.routes()
 

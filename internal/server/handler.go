@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -81,7 +80,7 @@ type Watcher interface {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, mvsDir, cameraDir, ffmpegBinary, objectFile string, mediamtxHost string, mediamtxPort int) *Handler {
+func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
 	if dataDir == "" {
 		dataDir = "/data"
 	}
@@ -102,14 +101,18 @@ func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, mvsDir, cameraD
 	}
 	h.loadAllCameraConfigs()
 
-	// Load detect objects from file, fallback to defaults if failed
-	if objectFile != "" {
-		if err := h.loadDetectObjects(objectFile); err != nil {
-			logger.GetLogger().Warnf("failed to load detect objects from %s: %v, using defaults", objectFile, err)
-			h.detectObjects = []string{"person", "car", "truck", "bus", "train", "cat"}
-		}
-	} else {
-		h.detectObjects = []string{"person", "car", "truck", "bus", "train", "cat"}
+	// COCO 80 classes (hardcoded)
+	h.detectObjects = []string{
+		"person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+		"traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+		"dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+		"umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+		"kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+		"bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+		"sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
+		"couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
+		"remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator",
+		"book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
 	}
 
 	return h
@@ -216,47 +219,9 @@ func (h *Handler) Shutdown() {
 	}
 }
 
-// loadDetectObjects loads detect objects from object.txt file.
-// File format: []string{"person", "car", ...}
-func (h *Handler) loadDetectObjects(objectFile string) error {
-	data, err := os.ReadFile(objectFile)
-	if err != nil {
-		return fmt.Errorf("failed to read object.txt: %w", err)
-	}
-
-	content := string(data)
-	// Remove []string{ prefix and } suffix
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "[]string{")
-	content = strings.TrimSuffix(content, "}")
-	content = strings.TrimSpace(content)
-
-	// Split by comma and clean each item
-	parts := strings.Split(content, ",")
-	objects := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		part = strings.Trim(part, `"`)
-		if part != "" {
-			objects = append(objects, part)
-		}
-	}
-
-	h.detectObjectMu.Lock()
-	h.detectObjects = objects
-	h.detectObjectMu.Unlock()
-
-	logger.GetLogger().Infof("[detect_objects] loaded %d objects from %s", len(objects), objectFile)
-	return nil
-}
-
-// getDetectObjects returns cached detect objects list.
+// getDetectObjects returns the hardcoded COCO 80 class list.
 func (h *Handler) getDetectObjects() []string {
-	h.detectObjectMu.RLock()
-	defer h.detectObjectMu.RUnlock()
-	result := make([]string, len(h.detectObjects))
-	copy(result, h.detectObjects)
-	return result
+	return h.detectObjects
 }
 
 // errorResponse sends a standardized error response.
