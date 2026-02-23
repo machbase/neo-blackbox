@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"blackbox-backend/internal/logger"
+	"neo-blackbox/internal/logger"
 )
 
 // CameraMetadataRow represents a camera metadata row.

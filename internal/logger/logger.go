@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"blackbox-backend/internal/config"
+	"neo-blackbox/internal/config"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"

@@ -3,11 +3,11 @@
 package watcher
 
 import (
-	"blackbox-backend/internal/db"
-	"blackbox-backend/internal/ffmpeg"
-	"blackbox-backend/internal/logger"
 	"context"
 	"fmt"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/ffmpeg"
+	"neo-blackbox/internal/logger"
 )
 
 // WatcherRule represents a watcher rule configuration.

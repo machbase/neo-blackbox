@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"blackbox-backend/internal/logger"
+	"neo-blackbox/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )

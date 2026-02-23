@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"blackbox-backend/internal/config"
-	"blackbox-backend/internal/logger"
+	"neo-blackbox/internal/config"
+	"neo-blackbox/internal/logger"
 )
 
 // Machbase is a client for Machbase HTTP API.

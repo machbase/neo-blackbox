@@ -3,9 +3,6 @@
 package watcher
 
 import (
-	"blackbox-backend/internal/db"
-	"blackbox-backend/internal/ffmpeg"
-	"blackbox-backend/internal/logger"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -14,6 +11,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/ffmpeg"
+	"neo-blackbox/internal/logger"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,8 +48,8 @@ type ptsOffset struct {
 // - 그 외엔 EMA(지수이동평균)로 평활화하여 inotify 지터를 흡수
 func (o *ptsOffset) updateOffset(newOffset float64) {
 	const (
-		resetThreshold = 2.0  // 초: 이보다 큰 차이면 리셋
-		emaAlpha       = 0.1  // EMA 계수 (0.1 = 새 값 10% 반영)
+		resetThreshold = 2.0 // 초: 이보다 큰 차이면 리셋
+		emaAlpha       = 0.1 // EMA 계수 (0.1 = 새 값 10% 반영)
 	)
 
 	if !o.initialized {

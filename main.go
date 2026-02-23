@@ -10,12 +10,12 @@ import (
 
 	"path/filepath"
 
-	"blackbox-backend/internal/config"
-	"blackbox-backend/internal/db"
-	"blackbox-backend/internal/ffmpeg"
-	"blackbox-backend/internal/logger"
-	"blackbox-backend/internal/server"
-	"blackbox-backend/internal/watcher"
+	"neo-blackbox/internal/config"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/ffmpeg"
+	"neo-blackbox/internal/logger"
+	"neo-blackbox/internal/server"
+	"neo-blackbox/internal/watcher"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -31,7 +31,7 @@ func main() {
 	}
 
 	if err := run(context.Background(), configFile); err != nil {
-		fmt.Fprintf(os.Stderr, "blackbox-backend: %v\n", err)
+		fmt.Fprintf(os.Stderr, "neo-blackbox: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -91,6 +91,6 @@ func run(c context.Context, path string) error {
 		log.Warnf("shutdown: %v", err)
 	}
 
-	log.Info("blackbox-backend stopped gracefully")
+	log.Info("neo-blackbox stopped gracefully")
 	return nil
 }

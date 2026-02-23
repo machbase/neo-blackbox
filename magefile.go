@@ -251,6 +251,18 @@ func Package() error {
 		fmt.Println("Warning: web directory not found, skipping")
 	}
 
+	// Copy tools directory (ffmpeg, ffprobe, mediamtx, ai)
+	toolsSrcDir := "tools"
+	if _, err := os.Stat(toolsSrcDir); err == nil {
+		toolsDestDir := filepath.Join(packageDir, "tools")
+		fmt.Printf("Copying %s to %s\n", toolsSrcDir, toolsDestDir)
+		if err := copyDir(toolsSrcDir, toolsDestDir); err != nil {
+			fmt.Printf("Warning: failed to copy tools directory: %v\n", err)
+		}
+	} else {
+		fmt.Println("Warning: tools directory not found, skipping")
+	}
+
 	// Create README
 	readmePath := filepath.Join(packageDir, "README.txt")
 	readmeContent := fmt.Sprintf(`Blackbox Backend Package

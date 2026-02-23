@@ -1,11 +1,11 @@
 package mediamtx
 
 import (
-	"blackbox-backend/internal/logger"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"neo-blackbox/internal/logger"
 	"net/http"
 	"net/url"
 	"os"
