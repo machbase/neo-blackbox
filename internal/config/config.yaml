@@ -1,8 +1,8 @@
 server:
   addr: 127.0.0.1:8000
-  camera_dir: "/home/aloha/machbase/blackbox-backend/tmp/cameras"
-  mvs_dir: "/home/aloha/machbase/blackbox-backend/tmp/mvs"
-  data_dir: "/home/aloha/machbase/blackbox-backend/tmp/data"
+  camera_dir: "/home/aloha/machbase/neo-blackbox/tmp/cameras"
+  mvs_dir: "/home/aloha/machbase/neo-blackbox/tmp/mvs"
+  data_dir: "/home/aloha/machbase/neo-blackbox/tmp/data"
 
 machbase:
   host: 127.0.0.1
@@ -13,10 +13,10 @@ mediamtx:
   port: 9997  # MediaMTX HTTP API 포트
 
 ffmpeg:
-  binary: "/home/aloha/machbase/blackbox-backend/ffmpeg"
+  binary: "/home/aloha/machbase/neo-blackbox/ffmpeg"
 
   defaults:
-    probe_binary: "/home/aloha/machbase/blackbox-backend/ffprobe"
+    probe_binary: "/home/aloha/machbase/neo-blackbox/ffprobe"
     probe_args:
       - flag: v
         value: "error"
@@ -29,7 +29,7 @@ ffmpeg:
 
 # 로그 설정 (logrus + lumberjack)
 log:
-  dir: "/home/aloha/machbase/blackbox-backend/logs"  # 모든 로그 파일 디렉토리 (앱 로그 + ffmpeg 로그)
+  dir: "/home/aloha/machbase/neo-blackbox/logs"  # 모든 로그 파일 디렉토리 (앱 로그 + ffmpeg 로그)
   level: "info"  # debug, info, warn, error, fatal, panic
   format: "json"  # json or text
   output: "both"  # stdout, file, both

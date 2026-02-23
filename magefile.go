@@ -18,14 +18,14 @@ import (
 )
 
 const (
-	binaryName = "blackbox-backend"
+	binaryName = "neo-blackbox"
 	configFile = "internal/config/config.yaml"
 	distDir    = "dist"
 	binDir     = "bin"
 	tmpDir     = "tmp"
 )
 
-// Build builds the blackbox-backend binary (CGO disabled for static linking)
+// Build builds the neo-blackbox binary (CGO disabled for static linking)
 func Build() error {
 	mg.Deps(InstallDeps)
 	fmt.Println("Building (CGO_ENABLED=0)...")
@@ -409,6 +409,50 @@ func Dp() error {
 	remoteUser := getEnvOrDefault(env, "DEPLOY_USER", "eleven")
 	remoteHost := getEnvOrDefault(env, "DEPLOY_HOST", "192.168.0.87")
 	remotePath := getEnvOrDefault(env, "DEPLOY_PATH", "/blackbox/be/pkg")
+
+	remoteTarget := fmt.Sprintf("%s@%s:%s/", remoteUser, remoteHost, remotePath)
+
+	fmt.Printf("\n📦 Deploying %s to %s\n", archiveName, remoteTarget)
+	fmt.Println("Please enter password when prompted...")
+	fmt.Println()
+
+	// Run scp command (interactive for password)
+	cmd := exec.Command("scp", archivePath, remoteTarget)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to scp: %w", err)
+	}
+
+	fmt.Printf("\n✓ Deployed successfully to %s\n", remoteTarget)
+	return nil
+}
+
+// DpG4u (Deploy Package to G4U) deploys the package to g4u server via scp
+func DpG4u() error {
+	// Run package first
+	if err := Package(); err != nil {
+		return fmt.Errorf("failed to package: %w", err)
+	}
+
+	// Find the created archive
+	packageName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
+	archiveName := packageName + ".tar.gz"
+	if runtime.GOOS == "windows" {
+		archiveName = packageName + ".zip"
+	}
+	archivePath := filepath.Join(distDir, archiveName)
+
+	// Check if archive exists
+	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+		return fmt.Errorf("package file not found: %s", archivePath)
+	}
+
+	remoteUser := "demo"
+	remoteHost := "192.168.1.248"
+	remotePath := "/data/pkgs"
 
 	remoteTarget := fmt.Sprintf("%s@%s:%s/", remoteUser, remoteHost, remotePath)
 

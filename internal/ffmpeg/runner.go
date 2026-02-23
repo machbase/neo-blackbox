@@ -1,12 +1,12 @@
 package ffmpeg
 
 import (
-	"blackbox-backend/internal/config"
-	"blackbox-backend/internal/logger"
 	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"neo-blackbox/internal/config"
+	"neo-blackbox/internal/logger"
 	"os/exec"
 	"strconv"
 	"strings"

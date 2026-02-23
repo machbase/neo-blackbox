@@ -165,13 +165,46 @@ type CameraEventQueryRow struct {
 	RuleID             string    `json:"rule_id"`
 }
 
-// QueryCameraEvents queries {table}_event with time range.
-func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs, endNs int64) ([]CameraEventQueryRow, error) {
+// CameraEventFilter holds optional filters for QueryCameraEvents.
+type CameraEventFilter struct {
+	CameraID  string   // filter by camera_id metadata column
+	EventName string   // filter by name column (e.g. "camera_id.rule_id")
+	EventType *float64 // filter by value column (2=MATCH, 1=TRIGGER, 0=RESOLVE, -1=ERROR)
+	Limit     int      // max rows to return
+	Offset    int      // rows to skip
+}
+
+// QueryCameraEvents queries {table}_event with time range and optional filters.
+func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs, endNs int64, filter *CameraEventFilter) ([]CameraEventQueryRow, error) {
 	safeTable := escapeSQLLiteral(table)
+	where := fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+
+	if filter != nil {
+		if filter.CameraID != "" {
+			where += fmt.Sprintf(" AND camera_id = '%s'", escapeSQLLiteral(filter.CameraID))
+		}
+		if filter.EventName != "" {
+			where += fmt.Sprintf(" AND name LIKE '%%%s%%'", escapeSQLLiteral(filter.EventName))
+		}
+		if filter.EventType != nil {
+			where += fmt.Sprintf(" AND value = %g", *filter.EventType)
+		}
+	}
+
+	pagination := ""
+	if filter != nil {
+		if filter.Limit > 0 {
+			pagination += fmt.Sprintf(" LIMIT %d", filter.Limit)
+		}
+		if filter.Offset > 0 {
+			pagination += fmt.Sprintf(" OFFSET %d", filter.Offset)
+		}
+	}
+
 	sql := fmt.Sprintf(
 		"SELECT name, time, value, expression_text, used_counts_snapshot, camera_id, rule_id "+
-			"FROM %s_event WHERE time BETWEEN %d AND %d ORDER BY time",
-		safeTable, startNs, endNs,
+			"FROM %s_event WHERE %s ORDER BY time%s",
+		safeTable, where, pagination,
 	)
 
 	resp, err := m.Query(ctx, sql, WithTimeformat("ns"))
@@ -205,4 +238,41 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 		}
 	}
 	return result, nil
+}
+
+// CountCameraEvents returns the count of events in {table}_event within a time range.
+// Optional filter applies the same WHERE conditions as QueryCameraEvents (without LIMIT/OFFSET).
+func (m *Machbase) CountCameraEvents(ctx context.Context, table string, startNs, endNs int64, filter *CameraEventFilter) (int64, error) {
+	safeTable := escapeSQLLiteral(table)
+	where := fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+
+	if filter != nil {
+		if filter.CameraID != "" {
+			where += fmt.Sprintf(" AND camera_id = '%s'", escapeSQLLiteral(filter.CameraID))
+		}
+		if filter.EventName != "" {
+			where += fmt.Sprintf(" AND name LIKE '%%%s%%'", escapeSQLLiteral(filter.EventName))
+		}
+		if filter.EventType != nil {
+			where += fmt.Sprintf(" AND value = %g", *filter.EventType)
+		}
+	}
+
+	sql := fmt.Sprintf("SELECT count(*) FROM %s_event WHERE %s", safeTable, where)
+
+	resp, err := m.Query(ctx, sql)
+	if err != nil {
+		return 0, err
+	}
+
+	var rows []struct {
+		Count int64 `json:"COUNT(*)"`
+	}
+	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].Count, nil
 }

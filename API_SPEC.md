@@ -440,21 +440,22 @@ Response:
 
 ---
 
-## GET /api/camera_events?camera_id={camera_id}&start_time={start_time}&end_time={end_time}
+## GET /api/camera_events
 
 카메라 이벤트 로그 조회 ({table}_event 테이블)
 
 Query Parameters:
-- `camera_id`: required - 카메라 ID
+- `camera_id`: optional - 카메라 ID (미지정 시 전체 카메라 조회)
 - `start_time`: required - 시작 시간 (Unix nanoseconds)
 - `end_time`: required - 종료 시간 (Unix nanoseconds)
+- `event_name`: optional - 이벤트 이름 (camera_id.rule_id 형식)
+- `event_type`: optional - 이벤트 코드 (`MATCH`, `TRIGGER`, `RESOLVE`, `ERROR`)
+- `size`: optional - 페이지당 조회 건수 (기본값: 100)
+- `page`: optional - 페이지 번호 (1부터 시작, 기본값: 1)
 
 Response:
 ```json
 {
-    "camera_id": "string",                // 조회한 카메라 ID
-    "table": "string",                    // 이벤트 테이블명 ({table}_event)
-    "count": 0,                           // int - 이벤트 개수
     "events": [                           // 이벤트 로그 배열
         {
             "name": "string",             // 이벤트 이름 (camera_id.rule_id 형식)
@@ -479,6 +480,24 @@ Note:
   - false → true: `value=1` (TRIGGER)
   - true → false: `value=0` (RESOLVE)
 - **ERROR**: DSL 평가 오류 시 `value=-1` (ERROR), EDGE_ONLY 상태는 변경 안 됨
+
+---
+
+## GET /api/camera_events/count
+
+마지막 이벤트 조회 이후 새로 발생한 이벤트 개수 반환
+
+- 서버는 `GET /api/camera_events` 호출 시 `end_time` 파라미터를 기록
+- 기록된 시간은 `max(이전 기록, end_time)`으로 항상 최신을 유지
+- 이 API는 기록된 시간 ~ 현재 시간 사이의 전체 카메라 이벤트 개수를 반환
+- 이벤트 조회 API를 한 번도 호출하지 않은 경우 `count: 0` 반환
+
+Response:
+```json
+{
+    "count": 0                            // int - 새 이벤트 개수
+}
+```
 
 ---
 

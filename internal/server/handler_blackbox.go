@@ -1,9 +1,10 @@
 package server
 
 import (
-	"blackbox-backend/internal/logger"
 	"fmt"
 	"math"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/logger"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -389,20 +390,11 @@ func (h *Handler) GetCameraRollup(c *gin.Context) {
 // utcNanosecondsToTime converts UTC nanoseconds to time.Time.
 // GetCameraEvents handles GET /api/camera_events.
 // {table}_event 테이블에서 시간 범위로 이벤트 조회.
+// camera_id가 없으면 전체 카메라의 이벤트를 조회.
 func (h *Handler) GetCameraEvents(c *gin.Context) {
 	tick := time.Now()
 
 	cameraID := c.Query("camera_id")
-	if cameraID == "" {
-		errorResponse(c, tick, http.StatusBadRequest, "camera_id is required")
-		return
-	}
-
-	config := h.getCameraConfig(cameraID)
-	if config == nil {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", cameraID))
-		return
-	}
 
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
@@ -426,12 +418,79 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 		return
 	}
 
+	// Optional filters + pagination (default: size=100, page=1)
+	eventName := c.Query("event_name")
+	eventTypeStr := c.Query("event_type")
+	sizeStr := c.Query("size")
+	pageStr := c.Query("page")
+
+	var size, page int
+	if sizeStr != "" {
+		if _, err := fmt.Sscanf(sizeStr, "%d", &size); err != nil || size < 0 {
+			errorResponse(c, tick, http.StatusBadRequest, "invalid size")
+			return
+		}
+	}
+	if pageStr != "" {
+		if _, err := fmt.Sscanf(pageStr, "%d", &page); err != nil || page < 0 {
+			errorResponse(c, tick, http.StatusBadRequest, "invalid page")
+			return
+		}
+	}
+
+	limit, offset := paginationValid(size, page)
+	filter := &db.CameraEventFilter{CameraID: cameraID, EventName: eventName, Limit: limit, Offset: offset}
+	if eventTypeStr != "" {
+		var eventType float64
+		switch eventTypeStr {
+		case "MATCH":
+			eventType = 2
+		case "TRIGGER":
+			eventType = 1
+		case "RESOLVE":
+			eventType = 0
+		case "ERROR":
+			eventType = -1
+		default:
+			errorResponse(c, tick, http.StatusBadRequest, "invalid event_type: use MATCH, TRIGGER, RESOLVE, ERROR")
+			return
+		}
+		filter.EventType = &eventType
+	}
+
+	// 조회할 테이블 목록 수집 (중복 제거)
+	tables := make(map[string]bool)
+	if cameraID != "" {
+		config := h.getCameraConfig(cameraID)
+		if config == nil {
+			errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", cameraID))
+			return
+		}
+		tables[config.Table] = true
+	} else {
+		h.configMu.RLock()
+		for _, config := range h.cameraConfigs {
+			tables[config.Table] = true
+		}
+		h.configMu.RUnlock()
+	}
+
 	ctx := c.Request.Context()
-	rows, err := h.machbase.QueryCameraEvents(ctx, config.Table, startNs, endNs)
-	if err != nil {
-		logger.GetLogger().Errorf("GetCameraEvents[%s]: failed to query events (start=%d, end=%d): %v", cameraID, startNs, endNs, err)
-		errorResponse(c, tick, http.StatusInternalServerError, fmt.Sprintf("failed to query events: %v", err))
-		return
+	var allRows []db.CameraEventQueryRow
+	for table := range tables {
+		rows, err := h.machbase.QueryCameraEvents(ctx, table, startNs, endNs, filter)
+		if err != nil {
+			logger.GetLogger().Errorf("GetCameraEvents: failed to query %s_event (start=%d, end=%d): %v", table, startNs, endNs, err)
+			continue
+		}
+		allRows = append(allRows, rows...)
+	}
+
+	// 여러 테이블 결과를 시간순 정렬
+	if len(tables) > 1 {
+		sort.Slice(allRows, func(i, j int) bool {
+			return allRows[i].Time.Before(allRows[j].Time)
+		})
 	}
 
 	type eventRow struct {
@@ -445,8 +504,8 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 		RuleID             string  `json:"rule_id"`
 	}
 
-	events := make([]eventRow, len(rows))
-	for i, r := range rows {
+	events := make([]eventRow, len(allRows))
+	for i, r := range allRows {
 		label := ""
 		switch r.Value {
 		case 2:
@@ -470,12 +529,86 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 		}
 	}
 
+	// 총 건수 조회 (페이지네이션 없이 같은 필터)
+	var totalCount int64
+	for table := range tables {
+		cnt, err := h.machbase.CountCameraEvents(ctx, table, startNs, endNs, filter)
+		if err != nil {
+			logger.GetLogger().Errorf("GetCameraEvents: failed to count %s_event: %v", table, err)
+			continue
+		}
+		totalCount += cnt
+	}
+
+	totalPages := int64(0)
+	if limit > 0 {
+		totalPages = (totalCount + int64(limit) - 1) / int64(limit)
+	}
+
+	// 마지막 이벤트 조회 시간 갱신: max(endNs, 기존 기록)
+	h.lastEventQueryTimeMu.Lock()
+	if endNs > h.lastEventQueryTime {
+		h.lastEventQueryTime = endNs
+	}
+	h.lastEventQueryTimeMu.Unlock()
+
 	successResponse(c, tick, map[string]any{
-		"camera_id": cameraID,
-		"table":     config.Table + "_event",
-		"count":     len(events),
-		"events":    events,
+		"events":      events,
+		"total_count": totalCount,
+		"total_pages": totalPages,
 	})
+}
+
+// GetCameraEventCount handles GET /api/camera_events/count.
+// 마지막 이벤트 조회 시간부터 현재까지의 이벤트 개수를 반환.
+func (h *Handler) GetCameraEventCount(c *gin.Context) {
+	tick := time.Now()
+
+	h.lastEventQueryTimeMu.Lock()
+	startNs := h.lastEventQueryTime
+	h.lastEventQueryTimeMu.Unlock()
+
+	if startNs == 0 {
+		successResponse(c, tick, map[string]any{
+			"count": 0,
+		})
+		return
+	}
+
+	endNs := time.Now().UnixNano()
+
+	// 조회할 테이블 목록 수집 (중복 제거)
+	tables := make(map[string]bool)
+	h.configMu.RLock()
+	for _, config := range h.cameraConfigs {
+		tables[config.Table] = true
+	}
+	h.configMu.RUnlock()
+
+	ctx := c.Request.Context()
+	var total int64
+	for table := range tables {
+		count, err := h.machbase.CountCameraEvents(ctx, table, startNs, endNs, nil)
+		if err != nil {
+			logger.GetLogger().Errorf("GetCameraEventCount: failed to count %s_event: %v", table, err)
+			continue
+		}
+		total += count
+	}
+
+	successResponse(c, tick, map[string]any{
+		"count": total,
+	})
+}
+
+func paginationValid(size int, page int) (int, int) {
+	if page > 0 {
+		page = page - 1
+	}
+	if size == 0 {
+		return 100, size * page
+	}
+	return size, size * page
 }
 
 func utcNanosecondsToTime(ns int64) time.Time {
@@ -561,7 +694,7 @@ func (h *Handler) GetDataGaps(c *gin.Context) {
 
 		// start_time을 rollup 경계로 정렬 (Machbase origin 고려)
 		delta := startUnix - originOffset
-		startAligned = (delta / int64(req.Interval)) * int64(req.Interval) + originOffset
+		startAligned = (delta/int64(req.Interval))*int64(req.Interval) + originOffset
 		if startAligned < startUnix {
 			startAligned += int64(req.Interval)
 		}

@@ -1,14 +1,14 @@
 package server
 
 import (
-	"blackbox-backend/internal/db"
-	"blackbox-backend/internal/dsl"
-	"blackbox-backend/internal/logger"
-	"blackbox-backend/internal/mediamtx"
-	"blackbox-backend/internal/watcher"
 	"context"
 	"encoding/json"
 	"fmt"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/dsl"
+	"neo-blackbox/internal/logger"
+	"neo-blackbox/internal/mediamtx"
+	"neo-blackbox/internal/watcher"
 	"net/http"
 	"os"
 	"os/exec"
@@ -349,7 +349,6 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
 		return
 	}
-
 	// timestamp: milliseconds → nanoseconds
 	if req.Timestamp <= 0 {
 		errorResponse(c, tick, http.StatusBadRequest, "invalid timestamp: must be positive milliseconds")
@@ -359,7 +358,8 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 
 	config := h.getCameraConfig(req.CameraID)
 	if config == nil {
-		errorResponse(c, tick, http.StatusNotFound, "camera config not found")
+		logger.GetLogger().Errorf("UploadAIResult: camera config not found for camera_id=%q", req.CameraID)
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera config not found: %q", req.CameraID))
 		return
 	}
 

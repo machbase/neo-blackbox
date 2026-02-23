@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"blackbox-backend/internal/config"
-	"blackbox-backend/internal/db"
-	"blackbox-backend/internal/logger"
+	"neo-blackbox/internal/config"
+	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -114,6 +114,7 @@ func (s *Server) routes() {
 
 	// Camera Events Query
 	api.GET("/camera_events", s.handler.GetCameraEvents)
+	api.GET("/camera_events/count", s.handler.GetCameraEventCount)
 
 	// ==================================================================
 	// Event Rule

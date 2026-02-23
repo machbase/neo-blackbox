@@ -1,4 +1,4 @@
-module blackbox-backend
+module neo-blackbox
 
 go 1.25.3
 

@@ -1,8 +1,8 @@
 server:
   addr: 127.0.0.1:8000
-  camera_dir: "/home/aloha/machbase/blackbox-backend/tmp/cameras"
-  mvs_dir: "/home/aloha/machbase/blackbox-backend/tmp/mvs"
-  data_dir: "/home/aloha/machbase/blackbox-backend/tmp/data"
+  camera_dir: "/home/aloha/machbase/neo-blackbox/tmp/cameras"
+  mvs_dir: "/home/aloha/machbase/neo-blackbox/tmp/mvs"
+  data_dir: "/home/aloha/machbase/neo-blackbox/tmp/data"
 
 machbase:
   host: 127.0.0.1
@@ -16,13 +16,13 @@ watcher:
       ext: .m4s
 
 ffmpeg:
-  binary: "/home/aloha/machbase/blackbox-backend/ffmpeg"
+  binary: "/home/aloha/machbase/neo-blackbox/ffmpeg"
 
   defaults:
     input_args:
     output_args:
 
-    probe_binary: "/home/aloha/machbase/blackbox-backend/ffprobe"
+    probe_binary: "/home/aloha/machbase/neo-blackbox/ffprobe"
     probe_args:
       - flag: v
         value: "error"
@@ -73,7 +73,7 @@ log:
   format: "text"  # json or text
   output: "both"  # stdout, file, both
   file:
-    filename: "/home/aloha/machbase/blackbox-backend/logs/test.log"
+    filename: "/home/aloha/machbase/neo-blackbox/logs/test.log"
     max_size: 50       # MB
     max_backups: 5     # 백업 파일 개수
     max_age: 7         # days
