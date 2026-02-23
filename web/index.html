@@ -400,6 +400,7 @@
                     <div class="nav-item" data-section="camera-disable">카메라 비활성화</div>
                     <div class="nav-item" data-section="camera-status">카메라 상태</div>
                     <div class="nav-item" data-section="cameras-health">전체 헬스체크</div>
+                    <div class="nav-item" data-section="camera-test">연결 테스트</div>
                 </div>
 
                 <div class="nav-section">
@@ -655,6 +656,18 @@
                     <p class="help-text">모든 카메라의 상태를 한번에 확인합니다.</p>
                     <button class="btn btn-primary" onclick="getCamerasHealth()">조회하기</button>
                     <div class="response-area" id="cameras-health-response"></div>
+                </div>
+
+                <!-- Camera Connection Test Section -->
+                <div class="api-section" id="camera-test">
+                    <h2><span class="method-badge method-post">POST</span> 카메라 연결 테스트</h2>
+                    <p class="help-text">카메라의 RTSP URL에 ffprobe로 연결을 시도합니다. 최대 ~5초 소요됩니다.</p>
+                    <div class="form-group">
+                        <label>Camera ID *</label>
+                        <input type="text" id="test-camera-id" placeholder="camera1" />
+                    </div>
+                    <button class="btn btn-primary" onclick="testCameraConnection()">연결 테스트</button>
+                    <div class="response-area" id="camera-test-response"></div>
                 </div>
 
                 <!-- MediaMTX Heartbeat Section -->
@@ -1411,6 +1424,38 @@ ${JSON.stringify(data, null, 2)}
                 showResponse('cameras-health-response', data);
             } catch (error) {
                 showResponse('cameras-health-response', { error: error.message }, true);
+            }
+        }
+
+        async function testCameraConnection() {
+            const id = document.getElementById('test-camera-id').value.trim();
+            if (!id) {
+                alert('Camera ID를 입력해주세요.');
+                return;
+            }
+            const container = document.getElementById('camera-test-response');
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>연결 테스트 중... (최대 5초)</p>
+                </div>
+            `;
+            try {
+                const data = await apiRequest(`${API_BASE}/camera/${id}/test`, 'POST');
+                const ok = data.data && data.data.ok;
+                container.innerHTML = `
+                    <h3>응답 결과</h3>
+                    <div class="response-box ${ok ? 'success' : 'error'}">
+${JSON.stringify(data, null, 2)}
+                    </div>
+                `;
+            } catch (error) {
+                container.innerHTML = `
+                    <h3>응답 결과</h3>
+                    <div class="response-box error">
+${JSON.stringify({ error: error.message }, null, 2)}
+                    </div>
+                `;
             }
         }
 

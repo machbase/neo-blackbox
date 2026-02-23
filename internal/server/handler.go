@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/ffmpeg"
 	"neo-blackbox/internal/logger"
 	"neo-blackbox/internal/watcher"
 
@@ -59,6 +60,7 @@ type Handler struct {
 	mvsDir               string
 	cameraDir            string
 	ffmpegBinary         string
+	ffRunner             *ffmpeg.FFmpegRunner
 	mediamtxHost         string // MediaMTX 서버 호스트
 	mediamtxPort         int    // MediaMTX 서버 포트
 	prefixCache          map[string]string
@@ -83,7 +85,7 @@ type Watcher interface {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
+func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
 	if dataDir == "" {
 		dataDir = "/data"
 	}
@@ -93,6 +95,7 @@ func NewHandler(machbase *db.Machbase, watcher Watcher, dataDir, logDir, mvsDir,
 	h := &Handler{
 		machbase:      machbase,
 		watcher:       watcher,
+		ffRunner:      ffRunner,
 		dataDir:       dataDir,
 		logDir:        logDir,
 		mvsDir:        mvsDir,

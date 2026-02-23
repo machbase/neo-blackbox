@@ -10,6 +10,7 @@ import (
 
 	"neo-blackbox/internal/config"
 	"neo-blackbox/internal/db"
+	"neo-blackbox/internal/ffmpeg"
 	"neo-blackbox/internal/logger"
 
 	"github.com/gin-gonic/gin"
@@ -28,7 +29,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // New creates a new Server.
-func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir string, machbase *db.Machbase, watcher Watcher, ffmpegBinary ...string) (*Server, error) {
+func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir string, machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, ffmpegBinary ...string) (*Server, error) {
 	cfg.ApplyDefaults()
 
 	if cfg.BaseDir == "" {
@@ -53,7 +54,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
+		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
 	}
 	s.routes()
 
@@ -95,7 +96,7 @@ func (s *Server) routes() {
 	api.GET("/camera/:id", s.handler.GetCamera)       // O
 	api.POST("/camera/:id", s.handler.UpdateCamera)   // O
 	api.DELETE("/camera/:id", s.handler.DeleteCamera) // O
-	api.POST("/camera/test", s.handler.TestCameraConnection)
+	api.POST("/camera/:id/test", s.handler.TestCameraConnection)
 
 	// Camera Detect Objects
 	api.GET("/camera/:id/detect_objects", s.handler.GetDetectObjectsByCamera)

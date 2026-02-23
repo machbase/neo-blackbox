@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"neo-blackbox/internal/config"
 	"neo-blackbox/internal/logger"
 	"os/exec"
@@ -129,6 +131,31 @@ func parseCSVFloat(line string, field int) (float64, error) {
 	}
 
 	return v, nil
+}
+
+// ProbeRTSP checks if an RTSP server is reachable via TCP dial.
+// This avoids conflicting with existing consumers of the same RTSP stream.
+func (r *FFmpegRunner) ProbeRTSP(ctx context.Context, rtspURL string) error {
+	u, err := url.Parse(rtspURL)
+	if err != nil {
+		return fmt.Errorf("invalid RTSP URL: %w", err)
+	}
+
+	host := u.Host
+	if host == "" {
+		return fmt.Errorf("invalid RTSP URL: missing host")
+	}
+	// default RTSP port
+	if u.Port() == "" {
+		host = net.JoinHostPort(u.Hostname(), "554")
+	}
+
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", host)
+	if err != nil {
+		return fmt.Errorf("cannot reach RTSP server at %s: %w", host, err)
+	}
+	conn.Close()
+	return nil
 }
 
 func (r *FFmpegRunner) buildProbeArgs(initFile string, chunkFile string) []string {

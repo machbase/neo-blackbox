@@ -13,11 +13,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// validIdentifier matches SQL identifiers: starts with letter or underscore, followed by letters/digits/underscores.
+var validIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type EventRule struct {
 	ID         string `json:"rule_id"`
@@ -107,6 +111,14 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 	if strings.ContainsAny(req.Name, " '\"`") {
 		logger.GetLogger().Errorf("CreateCamera: invalid camera name %q (contains space or quotes)", req.Name)
 		errorResponse(c, tick, http.StatusBadRequest, "camera name cannot contain spaces or quotes")
+		return
+	}
+
+	// Validate table name: Machbase SQL identifiers allow only letters, digits, underscores
+	req.Table = strings.TrimSpace(req.Table)
+	if !validIdentifier.MatchString(req.Table) {
+		logger.GetLogger().Errorf("CreateCamera: invalid table name %q", req.Table)
+		errorResponse(c, tick, http.StatusBadRequest, "table must start with a letter or underscore and contain only letters, digits, or underscores")
 		return
 	}
 
@@ -744,12 +756,42 @@ func (h *Handler) DeleteCamera(c *gin.Context) {
 	})
 }
 
-// TestCameraConnection handles POST /api/camera/test.
-// Tests RTSP URL connection.
+// TestCameraConnection handles POST /api/camera/:id/test.
+// Tests RTSP URL connection using ffprobe.
 func (h *Handler) TestCameraConnection(c *gin.Context) {
 	tick := time.Now()
-	// TODO: implement
-	errorResponse(c, tick, http.StatusNotImplemented, "not implemented")
+
+	id := c.Param("id")
+	if id == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "camera id is required")
+		return
+	}
+
+	if h.ffRunner == nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "ffprobe not available")
+		return
+	}
+
+	config := h.getCameraConfig(id)
+	if config == nil {
+		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' not found", id))
+		return
+	}
+	if config.RtspURL == "" {
+		errorResponse(c, tick, http.StatusBadRequest, "camera has no rtsp_url configured")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := h.ffRunner.ProbeRTSP(ctx, config.RtspURL); err != nil {
+		logger.GetLogger().Infof("TestCameraConnection[%s]: probe failed: %v", id, err)
+		successResponse(c, tick, gin.H{"ok": false, "message": err.Error()})
+		return
+	}
+
+	successResponse(c, tick, gin.H{"ok": true, "message": "connected"})
 }
 
 // enableCameraInternal starts ffmpeg process and watcher for a camera.
@@ -833,6 +875,7 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 	cmd.Dir = outputDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	setPdeathsig(cmd) // 부모 프로세스 종료 시 ffmpeg에 SIGTERM 전달
 
 	logger.GetLogger().Infof("[camera:%s] ffmpeg start: %s %s (log: %s)", id, ffmpegBin, strings.Join(args, " "), logFilePath)
 

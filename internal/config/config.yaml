@@ -7,6 +7,7 @@ server:
 machbase:
   host: 127.0.0.1
   port: 5654
+  timeout_seconds: 30
 
 mediamtx:
   host: 127.0.0.1
