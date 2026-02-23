@@ -203,7 +203,7 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 
 	sql := fmt.Sprintf(
 		"SELECT name, time, value, expression_text, used_counts_snapshot, camera_id, rule_id "+
-			"FROM %s_event WHERE %s ORDER BY time%s",
+			"FROM %s_event WHERE %s ORDER BY time DESC %s",
 		safeTable, where, pagination,
 	)
 
@@ -213,13 +213,13 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 	}
 
 	var rows []struct {
-		Name               string `json:"NAME"`
-		Time               int64  `json:"TIME"`
+		Name               string  `json:"NAME"`
+		Time               int64   `json:"TIME"`
 		Value              float64 `json:"VALUE"`
-		ExpressionText     string `json:"EXPRESSION_TEXT"`
-		UsedCountsSnapshot string `json:"USED_COUNTS_SNAPSHOT"`
-		CameraID           string `json:"CAMERA_ID"`
-		RuleID             string `json:"RULE_ID"`
+		ExpressionText     string  `json:"EXPRESSION_TEXT"`
+		UsedCountsSnapshot string  `json:"USED_COUNTS_SNAPSHOT"`
+		CameraID           string  `json:"CAMERA_ID"`
+		RuleID             string  `json:"RULE_ID"`
 	}
 	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
 		return nil, err
