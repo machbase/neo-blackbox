@@ -181,13 +181,41 @@ func Version() error {
 	return cmd.Run()
 }
 
-// Package creates a distributable package with binary and configs
-func Package() error {
-	mg.Deps(Build)
-	fmt.Println("Creating package...")
+// Package creates a distributable package for the specified target platform.
+// Usage: mage package linux-amd64
+// Supported targets: linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64
+func Package(target string) error {
+	parts := strings.SplitN(target, "-", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid target %q: expected format os-arch (e.g. linux-amd64)", target)
+	}
+	targetOS, targetArch := parts[0], parts[1]
+
+	fmt.Printf("Building for %s/%s (CGO_ENABLED=0)...\n", targetOS, targetArch)
+	mg.Deps(InstallDeps)
+
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return fmt.Errorf("failed to create tmp directory: %w", err)
+	}
+
+	// Cross-compile binary
+	binaryOutput := filepath.Join(tmpDir, binaryName+"-"+target)
+	if targetOS == "windows" {
+		binaryOutput += ".exe"
+	}
+
+	buildEnv := map[string]string{
+		"CGO_ENABLED": "0",
+		"GOOS":        targetOS,
+		"GOARCH":      targetArch,
+	}
+	if err := sh.RunWith(buildEnv, "go", "build", "-o", binaryOutput, "."); err != nil {
+		return fmt.Errorf("failed to build for %s: %w", target, err)
+	}
+	fmt.Printf("Built: %s\n", binaryOutput)
 
 	// Create dist directory structure
-	packageName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
+	packageName := fmt.Sprintf("%s-%s", binaryName, target)
 	packageDir := filepath.Join(distDir, packageName)
 	packageBinDir := filepath.Join(packageDir, binDir)
 
@@ -195,26 +223,20 @@ func Package() error {
 	if err := sh.Rm(distDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to clean dist: %w", err)
 	}
-
 	if err := os.MkdirAll(packageBinDir, 0755); err != nil {
 		return fmt.Errorf("failed to create package bin directory: %w", err)
 	}
 
 	// Copy binary
-	binarySource := filepath.Join(tmpDir, binaryName)
 	binaryDest := filepath.Join(packageBinDir, binaryName)
-	if runtime.GOOS == "windows" {
-		binarySource += ".exe"
+	if targetOS == "windows" {
 		binaryDest += ".exe"
 	}
-
-	fmt.Printf("Copying %s to %s\n", binarySource, binaryDest)
-	if err := sh.Copy(binaryDest, binarySource); err != nil {
+	fmt.Printf("Copying %s to %s\n", binaryOutput, binaryDest)
+	if err := sh.Copy(binaryDest, binaryOutput); err != nil {
 		return fmt.Errorf("failed to copy binary: %w", err)
 	}
-
-	// Make binary executable
-	if runtime.GOOS != "windows" {
+	if targetOS != "windows" {
 		if err := os.Chmod(binaryDest, 0755); err != nil {
 			return fmt.Errorf("failed to make binary executable: %w", err)
 		}
@@ -226,9 +248,7 @@ func Package() error {
 	if err := os.MkdirAll(configDestDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-
-	configs := []string{"config.yaml", "test.yaml"}
-	for _, cfg := range configs {
+	for _, cfg := range []string{"config.yaml", "test.yaml"} {
 		src := filepath.Join(configSrcDir, cfg)
 		if _, err := os.Stat(src); err == nil {
 			dest := filepath.Join(configDestDir, cfg)
@@ -240,19 +260,18 @@ func Package() error {
 	}
 
 	// Copy web directory
-	webSrcDir := "web"
-	if _, err := os.Stat(webSrcDir); err == nil {
+	if _, err := os.Stat("web"); err == nil {
 		webDestDir := filepath.Join(packageDir, "web")
-		fmt.Printf("Copying %s to %s\n", webSrcDir, webDestDir)
-		if err := copyDir(webSrcDir, webDestDir); err != nil {
+		fmt.Printf("Copying web to %s\n", webDestDir)
+		if err := copyDir("web", webDestDir); err != nil {
 			fmt.Printf("Warning: failed to copy web directory: %v\n", err)
 		}
 	} else {
 		fmt.Println("Warning: web directory not found, skipping")
 	}
 
-	// Copy tools directory (ffmpeg, ffprobe, mediamtx, ai)
-	toolsSrcDir := "tools"
+	// Copy tools/{target}/ directory (only the matching platform)
+	toolsSrcDir := filepath.Join("tools", target)
 	if _, err := os.Stat(toolsSrcDir); err == nil {
 		toolsDestDir := filepath.Join(packageDir, "tools")
 		fmt.Printf("Copying %s to %s\n", toolsSrcDir, toolsDestDir)
@@ -260,34 +279,34 @@ func Package() error {
 			fmt.Printf("Warning: failed to copy tools directory: %v\n", err)
 		}
 	} else {
-		fmt.Println("Warning: tools directory not found, skipping")
+		fmt.Printf("Warning: tools/%s not found, skipping\n", target)
 	}
 
 	// Create README
-	readmePath := filepath.Join(packageDir, "README.txt")
 	readmeContent := fmt.Sprintf(`Blackbox Backend Package
 ========================
 
 Build Date: %s
-Platform: %s/%s
+Platform: %s
 
 Contents:
 - bin/%s: Main application binary
 - config/: Configuration files
+- tools/: Platform-specific tools (ffmpeg, mediamtx, ai manager, ...)
 
 Usage:
   ./bin/%s -config config/config.yaml
 
 For more information, see the project documentation.
-`, time.Now().Format("2006-01-02 15:04:05"), runtime.GOOS, runtime.GOARCH, binaryName, binaryName)
+`, time.Now().Format("2006-01-02 15:04:05"), target, binaryName, binaryName)
 
-	if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(packageDir, "README.txt"), []byte(readmeContent), 0644); err != nil {
 		fmt.Printf("Warning: failed to create README: %v\n", err)
 	}
 
 	// Create archive
 	archiveName := packageName
-	if runtime.GOOS == "windows" {
+	if targetOS == "windows" {
 		archiveName += ".zip"
 		fmt.Printf("Creating archive %s...\n", archiveName)
 		if err := createZip(packageDir, filepath.Join(distDir, archiveName)); err != nil {
@@ -389,10 +408,11 @@ func loadEnv() (map[string]string, error) {
 	return env, scanner.Err()
 }
 
-// Dp (Deploy Package) deploys the package to remote server via scp
-func Dp() error {
+// Dp (Deploy Package) deploys the package to remote server via scp.
+// Usage: mage dp linux-amd64
+func Dp(target string) error {
 	// Run package first
-	if err := Package(); err != nil {
+	if err := Package(target); err != nil {
 		return fmt.Errorf("failed to package: %w", err)
 	}
 
@@ -405,9 +425,10 @@ func Dp() error {
 	}
 
 	// Find the created archive
-	packageName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
+	targetOS := strings.SplitN(target, "-", 2)[0]
+	packageName := fmt.Sprintf("%s-%s", binaryName, target)
 	archiveName := packageName + ".tar.gz"
-	if runtime.GOOS == "windows" {
+	if targetOS == "windows" {
 		archiveName = packageName + ".zip"
 	}
 	archivePath := filepath.Join(distDir, archiveName)
@@ -442,17 +463,19 @@ func Dp() error {
 	return nil
 }
 
-// DpG4u (Deploy Package to G4U) deploys the package to g4u server via scp
-func DpG4u() error {
+// DpG4u (Deploy Package to G4U) deploys the package to g4u server via scp.
+// Usage: mage dpg4u linux-amd64
+func DpG4u(target string) error {
 	// Run package first
-	if err := Package(); err != nil {
+	if err := Package(target); err != nil {
 		return fmt.Errorf("failed to package: %w", err)
 	}
 
 	// Find the created archive
-	packageName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
+	targetOS := strings.SplitN(target, "-", 2)[0]
+	packageName := fmt.Sprintf("%s-%s", binaryName, target)
 	archiveName := packageName + ".tar.gz"
-	if runtime.GOOS == "windows" {
+	if targetOS == "windows" {
 		archiveName = packageName + ".zip"
 	}
 	archivePath := filepath.Join(distDir, archiveName)

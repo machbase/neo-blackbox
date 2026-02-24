@@ -21,7 +21,12 @@ neo-blackbox/
 ├── config.yaml              # 설정 파일
 ├── web/
 │   └── index.html           # API 테스트 웹 UI
-├── tools/                   # 외부 바이너리 (ffmpeg, ffprobe, mediamtx, ai)
+├── tools/                   # 외부 바이너리 (플랫폼별 서브디렉토리)
+│   ├── linux-amd64/         #   ffmpeg, mediamtx, ai manager 등
+│   ├── linux-arm64/
+│   ├── darwin-amd64/
+│   ├── darwin-arm64/
+│   └── windows-amd64/
 └── internal/
     ├── config/              # 설정 로드
     ├── db/                  # Machbase DB 연동
@@ -86,15 +91,28 @@ mage test
 
 ### 배포
 
+패키징 시 타겟 플랫폼을 `os-arch` 형식으로 지정합니다.
+`tools/{os-arch}/` 디렉토리가 함께 포함됩니다.
+
 ```bash
 # 패키징 (dist/ 폴더에 tar.gz 생성)
-mage package
+mage package linux-amd64
+mage package linux-arm64
+mage package windows-amd64   # .zip 생성
 
-# 기본 서버에 배포
-mage dp
+# 기본 서버에 배포 (패키징 + scp)
+mage dp linux-amd64
 
 # G4U 서버에 배포
-mage dpG4u
+mage dpG4u linux-amd64
+```
+
+패키지 구조:
+```
+neo-blackbox-linux-amd64/
+├── bin/neo-blackbox     # 백엔드 바이너리
+├── config/config.yaml   # 설정 파일
+└── tools/               # tools/linux-amd64/ 내용물
 ```
 
 ## API

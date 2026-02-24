@@ -35,7 +35,7 @@ ai:
 
 # 로그 설정 (logrus + lumberjack)
 log:
-  dir: "/home/aloha/machbase/neo-blackbox/logs"  # 모든 로그 파일 디렉토리 (앱 로그 + ffmpeg 로그)
+  dir: "/home/aloha/machbase/neo-blackbox/tmp/logs"  # 모든 로그 파일 디렉토리 (앱 로그 + ffmpeg 로그)
   level: "info"  # debug, info, warn, error, fatal, panic
   format: "json"  # json or text
   output: "both"  # stdout, file, both
