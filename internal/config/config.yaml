@@ -1,5 +1,5 @@
 server:
-  addr: 127.0.0.1:8000
+  addr: 0.0.0.0:8000
   camera_dir: "../tmp/cameras"
   mvs_dir: "../tmp/mvs"
   data_dir: "../tmp/data"
@@ -30,8 +30,8 @@ ffmpeg:
         value: "csv=p=0"
 
 ai:
-  binary: ""       # AI manager 바이너리 경로 (비어있으면 비활성화)
-  config_file: ""  # AI manager config.json 경로
+  binary: "../ai/blackbox-ai-manager"  # AI manager 바이너리 경로 (비어있으면 비활성화)
+  config_file: "../ai/config.json"     # AI manager config.json 경로
 
 # 로그 설정 (logrus + lumberjack)
 log:

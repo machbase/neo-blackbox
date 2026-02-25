@@ -29,7 +29,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // New creates a new Server.
-func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir string, machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, ffmpegBinary ...string) (*Server, error) {
+func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir string, machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, ffmpegBinary string, serveWeb bool) (*Server, error) {
 	cfg.ApplyDefaults()
 
 	if cfg.BaseDir == "" {
@@ -46,17 +46,12 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	engine.Use(httpLogger())
 	engine.Use(cors())
 
-	var ffBinary string
-	if len(ffmpegBinary) > 0 {
-		ffBinary = ffmpegBinary[0]
-	}
-
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffBinary, mediamtxCfg.Host, mediamtxCfg.Port),
+		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffmpegBinary, mediamtxCfg.Host, mediamtxCfg.Port),
 	}
-	s.routes()
+	s.routes(serveWeb)
 
 	s.http = &http.Server{
 		Addr:         cfg.Addr,
@@ -68,7 +63,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	return s, nil
 }
 
-func (s *Server) routes() {
+func (s *Server) routes(serveWeb bool) {
 	api := s.engine.Group("/api")
 
 	api.GET("/ping", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
@@ -134,12 +129,15 @@ func (s *Server) routes() {
 	// MVS (Machine Vision System)
 	api.POST("/mvs/camera", s.handler.CreateMvsCamera)
 
-	// Web UI - Serve static frontend
-	webDir := filepath.Join(s.cfg.BaseDir, "web")
-	s.engine.GET("/", func(c *gin.Context) {
-		c.File(filepath.Join(webDir, "index.html"))
-	})
-	s.engine.StaticFS("/web", http.Dir(webDir))
+	// Web UI - Serve static frontend (-web 플래그를 줬을 때만 활성화)
+	if serveWeb {
+		webDir := filepath.Join(s.cfg.BaseDir, "web")
+		s.engine.GET("/", func(c *gin.Context) {
+			c.File(filepath.Join(webDir, "index.html"))
+		})
+		s.engine.StaticFS("/web", http.Dir(webDir))
+		logger.GetLogger().Infof("[server] web UI enabled (dir: %s)", webDir)
+	}
 }
 
 // Run starts the server and blocks until ctx is cancelled.

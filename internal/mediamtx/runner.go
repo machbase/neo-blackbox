@@ -224,11 +224,22 @@ func (r *Runner) Status() ServerStatus {
 }
 
 // buildExecArgs는 실행 인자를 생성한다.
+// ConfigFile이 비어있으면 바이너리와 같은 디렉토리에서 mediamtx.yml을 자동 탐색한다.
 func (r *Runner) buildExecArgs() []string {
 	var args []string
-	if r.cfg.ConfigFile != "" {
-		args = append(args, r.cfg.ConfigFile)
+
+	configFile := r.cfg.ConfigFile
+	if configFile == "" {
+		candidate := filepath.Join(filepath.Dir(r.cfg.Binary), "mediamtx.yml")
+		if _, err := os.Stat(candidate); err == nil {
+			configFile = candidate
+			logger.GetLogger().Infof("[mediamtx] auto-detected config: %s", configFile)
+		}
 	}
+	if configFile != "" {
+		args = append(args, configFile)
+	}
+
 	args = append(args, r.cfg.Args...)
 	return args
 }

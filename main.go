@@ -24,7 +24,9 @@ import (
 
 func main() {
 	var configFile string
+	var serveWeb bool
 	flag.StringVar(&configFile, "config", "", "Path to the YAML configuration file (e.g., ./config.yaml)")
+	flag.BoolVar(&serveWeb, "web", false, "Serve web UI from {basedir}/web (default: false)")
 	flag.Parse()
 
 	if configFile == "" {
@@ -32,13 +34,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(context.Background(), configFile); err != nil {
+	if err := run(context.Background(), configFile, serveWeb); err != nil {
 		fmt.Fprintf(os.Stderr, "neo-blackbox: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(c context.Context, path string) error {
+func run(c context.Context, path string, serveWeb bool) error {
 	ctx, cancel := signal.NotifyContext(c, syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
@@ -70,7 +72,7 @@ func run(c context.Context, path string) error {
 	ff := ffmpeg.New(cfg.FFmpeg, logDir)
 	w := watcher.New(neo, ff, cfg.Server.CameraDir)
 
-	svr, err := server.New(cfg.Server, cfg.Mediamtx, logDir, neo, w, ff, cfg.FFmpeg.Binary)
+	svr, err := server.New(cfg.Server, cfg.Mediamtx, logDir, neo, w, ff, cfg.FFmpeg.Binary, serveWeb)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}
@@ -80,22 +82,22 @@ func run(c context.Context, path string) error {
 
 	g, gctx := errgroup.WithContext(ctx)
 
+	// mediaMTX
 	g.Go(func() error {
 		return mediamtxRunner.Run(gctx)
 	})
 
+	// ai-manager
 	g.Go(func() error {
 		return aiMgr.Run(gctx)
 	})
 
+	// watcher
 	g.Go(func() error {
 		return w.Run(gctx)
 	})
 
-	// g.Go(func() error {
-	// 	return ff.Run(gctx)
-	// })
-
+	// web-server
 	g.Go(func() error {
 		return svr.Run(gctx)
 	})

@@ -259,9 +259,9 @@ func Package(target string) error {
 		}
 	}
 
-	// Copy web directory
+	// Copy web directory → bin/web/ (서버가 실행파일 기준 상대경로로 탐색)
 	if _, err := os.Stat("web"); err == nil {
-		webDestDir := filepath.Join(packageDir, "web")
+		webDestDir := filepath.Join(packageBinDir, "web")
 		fmt.Printf("Copying web to %s\n", webDestDir)
 		if err := copyDir("web", webDestDir); err != nil {
 			fmt.Printf("Warning: failed to copy web directory: %v\n", err)
@@ -270,13 +270,65 @@ func Package(target string) error {
 		fmt.Println("Warning: web directory not found, skipping")
 	}
 
-	// Copy tools/{target}/ directory (only the matching platform)
+	// Copy tools/{target}/ → tools/ and ai/
+	// ai/ 파일: blackbox-ai-manager, blackbox-ai-core, config.json
+	// tools/ 파일: 나머지 모두
 	toolsSrcDir := filepath.Join("tools", target)
 	if _, err := os.Stat(toolsSrcDir); err == nil {
 		toolsDestDir := filepath.Join(packageDir, "tools")
-		fmt.Printf("Copying %s to %s\n", toolsSrcDir, toolsDestDir)
-		if err := copyDir(toolsSrcDir, toolsDestDir); err != nil {
-			fmt.Printf("Warning: failed to copy tools directory: %v\n", err)
+		aiDestDir := filepath.Join(packageDir, "ai")
+
+		// ai/ 하위 디렉토리 미리 생성 (런타임에 필요한 빈 디렉토리)
+		for _, sub := range []string{aiDestDir, filepath.Join(aiDestDir, "models"), filepath.Join(aiDestDir, "mvs")} {
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				fmt.Printf("Warning: failed to create ai subdir %s: %v\n", sub, err)
+			}
+		}
+
+		// 파일명 → 복사될 목적 디렉토리 (빈 문자열이면 tools/ 로 이동)
+		aiFileDestDir := map[string]string{
+			"blackbox-ai-manager": aiDestDir,
+			"blackbox-ai-core":    aiDestDir,
+			"config.json":         aiDestDir,
+			"libonnxruntime.so":   filepath.Join(aiDestDir, "models"),
+		}
+
+		entries, err := os.ReadDir(toolsSrcDir)
+		if err != nil {
+			fmt.Printf("Warning: failed to read tools directory: %v\n", err)
+		} else {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				src := filepath.Join(toolsSrcDir, entry.Name())
+				var dest string
+				if destDir, ok := aiFileDestDir[entry.Name()]; ok {
+					if err := os.MkdirAll(destDir, 0o755); err != nil {
+						fmt.Printf("Warning: failed to create dir %s: %v\n", destDir, err)
+						continue
+					}
+					dest = filepath.Join(destDir, entry.Name())
+				} else {
+					if err := os.MkdirAll(toolsDestDir, 0o755); err != nil {
+						fmt.Printf("Warning: failed to create tools dir: %v\n", err)
+						continue
+					}
+					dest = filepath.Join(toolsDestDir, entry.Name())
+				}
+				fmt.Printf("Copying %s to %s\n", src, dest)
+				if err := sh.Copy(dest, src); err != nil {
+					fmt.Printf("Warning: failed to copy %s: %v\n", entry.Name(), err)
+					continue
+				}
+				// 실행 파일 권한 부여 (Windows 제외)
+				if targetOS != "windows" {
+					info, _ := entry.Info()
+					if info.Mode()&0o111 != 0 {
+						_ = os.Chmod(dest, 0o755)
+					}
+				}
+			}
 		}
 	} else {
 		fmt.Printf("Warning: tools/%s not found, skipping\n", target)
@@ -292,7 +344,10 @@ Platform: %s
 Contents:
 - bin/%s: Main application binary
 - config/: Configuration files
-- tools/: Platform-specific tools (ffmpeg, mediamtx, ai manager, ...)
+- tools/: Platform-specific tools (mediamtx, ffmpeg, ffprobe, ...)
+- ai/: AI manager and core binaries (blackbox-ai-manager, blackbox-ai-core, config.json)
+  - ai/models/: AI model files
+  - ai/mvs/: MVS working files
 
 Usage:
   ./bin/%s -config config/config.yaml
