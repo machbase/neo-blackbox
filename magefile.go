@@ -369,7 +369,8 @@ Platform: %s
 Contents:
 - bin/%s: Main application binary
 - config/: Configuration files
-- tools/: Platform-specific tools (mediamtx, ffmpeg, ffprobe, ...)
+- tools/: Platform-specific tools (ffmpeg, mediamtx, ai manager, ...)
+- .backend.yml and .backend/: Runtime launcher configuration and scripts
 - ai/: AI manager and core binaries (blackbox-ai-manager, blackbox-ai-core, config.json)
   - ai/models/: AI model files
   - ai/mvs/: MVS working files
