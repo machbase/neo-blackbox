@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"neo-blackbox/internal/config"
 	"neo-blackbox/internal/db"
 	"neo-blackbox/internal/ffmpeg"
 	"neo-blackbox/internal/logger"
+	"neo-blackbox/internal/mediamtx"
 	"neo-blackbox/internal/watcher"
 
 	"github.com/gin-gonic/gin"
@@ -63,8 +66,11 @@ type Handler struct {
 	cameraDir            string
 	ffmpegBinary         string
 	ffRunner             *ffmpeg.FFmpegRunner
-	mediamtxHost         string // MediaMTX 서버 호스트
-	mediamtxPort         int    // MediaMTX 서버 포트
+	mediamtxClient         *mediamtx.Client // MediaMTX HTTP API 클라이언트
+	mediamtxHost           string           // MediaMTX 서버 호스트 (heartbeat용)
+	mediamtxPort           int              // MediaMTX HTTP API 포트 (heartbeat용)
+	mediamtxWebRTCPort     int              // MediaMTX WebRTC 포트 (webrtc_url 생성용)
+	mediamtxRtspServerPort int              // MediaMTX RTSP 서버 포트 (ffmpeg용, 기본: 8554)
 	prefixCache          map[string]string
 	fpsCache             map[string]*int
 	cacheMu              sync.RWMutex
@@ -87,29 +93,34 @@ type Watcher interface {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int) *Handler {
+func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int, mediamtxWebRTCPort int, mediamtxRtspServerPort int) *Handler {
 	if dataDir == "" {
 		dataDir = "/data"
 	}
 	if logDir == "" {
 		logDir = "/var/log/blackbox"
 	}
+	mediamtxCfg := config.MediamtxConfig{Host: mediamtxHost, Port: mediamtxPort, WebRTCPort: mediamtxWebRTCPort, RtspServerPort: mediamtxRtspServerPort}
+	mediamtxCfg.ApplyDefaults()
 	h := &Handler{
-		machbase:      machbase,
-		watcher:       watcher,
-		ffRunner:      ffRunner,
-		dataDir:       dataDir,
-		logDir:        logDir,
-		mvsDir:        mvsDir,
-		cameraDir:     cameraDir,
-		ffmpegBinary:  ffmpegBinary,
-		mediamtxHost:  mediamtxHost,
-		mediamtxPort:  mediamtxPort,
-		prefixCache:   make(map[string]string),
-		fpsCache:      make(map[string]*int),
-		processes:     make(map[string]*cameraProcess),
-		edgeState:     make(map[string]bool),
-		cameraConfigs: make(map[string]*CameraCreateRequest),
+		machbase:               machbase,
+		watcher:                watcher,
+		ffRunner:               ffRunner,
+		dataDir:                dataDir,
+		logDir:                 logDir,
+		mvsDir:                 mvsDir,
+		cameraDir:              cameraDir,
+		ffmpegBinary:           ffmpegBinary,
+		mediamtxClient:         mediamtx.NewClient(mediamtxCfg),
+		mediamtxHost:           mediamtxCfg.Host,
+		mediamtxPort:           mediamtxCfg.Port,
+		mediamtxWebRTCPort:     mediamtxCfg.WebRTCPort,
+		mediamtxRtspServerPort: mediamtxCfg.RtspServerPort,
+		prefixCache:    make(map[string]string),
+		fpsCache:       make(map[string]*int),
+		processes:      make(map[string]*cameraProcess),
+		edgeState:      make(map[string]bool),
+		cameraConfigs:  make(map[string]*CameraCreateRequest),
 	}
 	h.loadAllCameraConfigs()
 
@@ -496,3 +507,142 @@ var (
 	ErrIllegalTagCharacters = NewApiError(http.StatusBadRequest, "Illegal characters in tag")
 	ErrInvalidTimeFormat    = NewApiError(http.StatusBadRequest, "Invalid time format")
 )
+
+// startupCamerasAsync는 서버 시작 시 모든 카메라를 복원한다.
+// 순서: MediaMTX path 등록 완료 → 카메라 프로세스(ffmpeg) 시작
+// 백그라운드 goroutine으로 호출한다.
+func (h *Handler) startupCamerasAsync(ctx context.Context) {
+	// Step 1: MediaMTX path 등록 (MediaMTX가 준비될 때까지 재시도)
+	h.restoreMediaMTXPaths(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+
+	// Step 2: 카메라 프로세스 시작
+	h.configMu.RLock()
+	toStart := make([]struct {
+		id  string
+		cam CameraCreateRequest
+	}, 0, len(h.cameraConfigs))
+	for id, cam := range h.cameraConfigs {
+		if cam.RtspURL != "" && cam.isEnabled() {
+			toStart = append(toStart, struct {
+				id  string
+				cam CameraCreateRequest
+			}{id, *cam})
+		}
+	}
+	h.configMu.RUnlock()
+
+	if len(toStart) == 0 {
+		return
+	}
+
+	started := 0
+	for i := range toStart {
+		e := &toStart[i]
+		if err := h.enableCameraInternal(ctx, e.id, &e.cam, "Startup"); err != nil {
+			if strings.Contains(err.Error(), "already running") {
+				continue
+			}
+			logger.GetLogger().Warnf("[startup] failed to start camera %q: %v", e.id, err)
+			continue
+		}
+		started++
+	}
+	logger.GetLogger().Infof("[startup] started %d/%d camera(s)", started, len(toStart))
+}
+
+// restoreMediaMTXPaths registers MediaMTX paths for all cameras that have rtsp_url and rtsp_path.
+// MediaMTX가 준비될 때까지 재시도한다. 서버 시작 직후 백그라운드에서 호출한다.
+func (h *Handler) restoreMediaMTXPaths(ctx context.Context) {
+	h.configMu.RLock()
+	type entry struct{ id, path, rtspURL string }
+	toRegister := make([]entry, 0, len(h.cameraConfigs))
+	for id, cam := range h.cameraConfigs {
+		if cam.RtspURL != "" && cam.RtspPath != "" {
+			toRegister = append(toRegister, entry{id, cam.RtspPath, cam.RtspURL})
+		}
+	}
+	h.configMu.RUnlock()
+
+	if len(toRegister) == 0 {
+		return
+	}
+
+	const maxAttempts = 15
+	const retryInterval = 2 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		failed := 0
+		for _, e := range toRegister {
+			if err := h.mediamtxClient.AddOrUpdatePath(ctx, e.path, mediamtx.PathConfig{
+				Source:         e.rtspURL,
+				SourceProtocol: mediamtx.PathSourceTCP,
+			}); err != nil {
+				failed++
+			} else {
+				logger.GetLogger().Infof("[startup] restored MediaMTX path %q -> %s (camera: %s)", e.path, e.rtspURL, e.id)
+			}
+		}
+
+		if failed == 0 {
+			logger.GetLogger().Infof("[startup] restored %d MediaMTX path(s)", len(toRegister))
+			return
+		}
+
+		logger.GetLogger().Warnf("[startup] %d/%d MediaMTX path(s) failed (attempt %d/%d), retrying in %v...",
+			failed, len(toRegister), attempt, maxAttempts, retryInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(retryInterval):
+		}
+	}
+
+	logger.GetLogger().Warnf("[startup] gave up restoring MediaMTX paths after %d attempts", maxAttempts)
+}
+
+// buildWebRTCURL generates the MediaMTX WebRTC URL for a given path name.
+// Format: http://{host}:{webrtcPort}/{pathName}
+func (h *Handler) buildWebRTCURL(pathName string) string {
+	if pathName == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d/%s", h.mediamtxHost, h.mediamtxWebRTCPort, pathName)
+}
+
+// buildMediamtxRtspURL generates the MediaMTX RTSP proxy URL for a given path name.
+// ffmpeg는 원본 카메라 URL 대신 이 URL을 통해 MediaMTX에서 스트림을 가져온다.
+// Format: rtsp://{host}:{rtspServerPort}/{pathName}
+func (h *Handler) buildMediamtxRtspURL(pathName string) string {
+	if pathName == "" {
+		return ""
+	}
+	return fmt.Sprintf("rtsp://%s:%d/%s", h.mediamtxHost, h.mediamtxRtspServerPort, pathName)
+}
+
+// rtspPathInUse returns true if the given MediaMTX path name is already in use
+// by another camera. excludeID is the camera ID to skip (use "" for create).
+func (h *Handler) rtspPathInUse(excludeID, path string) bool {
+	if path == "" {
+		return false
+	}
+	h.configMu.RLock()
+	defer h.configMu.RUnlock()
+	for id, cfg := range h.cameraConfigs {
+		if id == excludeID {
+			continue
+		}
+		if cfg.RtspPath == path {
+			return true
+		}
+	}
+	return false
+}

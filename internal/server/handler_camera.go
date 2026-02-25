@@ -41,12 +41,15 @@ type MvsCameraCreateRequest struct {
 // 이 구조체는 테이블이 아닌 파일로 저장이됨, JSON형식
 type CameraCreateRequest struct {
 	Table string `json:"table" binding:"required"`
-	Name    string `json:"name" binding:"required"`
-	Desc    string `json:"desc"`
+	Name  string `json:"name" binding:"required"`
+	Desc  string `json:"desc"`
 
-	RtspURL   string `json:"rtsp_url"` // binding:"url" 어떤 url
-	WebRTCURL string `json:"webrtc_url"`
-	MediaURL  string `json:"media_url"` // 미디어 서버 URL
+	Enabled         *bool  `json:"enabled,omitempty"` // nil = 구 설정파일 호환 (true로 간주), false = 비활성
+	RtspURL         string `json:"rtsp_url"`          // RTSP 소스 URL (예: rtsp://user:pass@host/stream1)
+	RtspPath        string `json:"rtsp_path"`         // MediaMTX path 이름 (빈 값이면 카메라 이름으로 자동 설정)
+	WebRTCURL       string `json:"webrtc_url"`        // WebRTC URL (시스템 자동 생성, API 입력 무시)
+	MediamtxRtspURL string `json:"mediamtx_rtsp_url"` // MediaMTX 프록시 RTSP URL (시스템 자동 생성, ffmpeg 입력용)
+	MediaURL        string `json:"media_url"`         // 미디어 서버 URL
 
 	ModelID       int      `json:"model_id"`
 	DetectObjects []string `json:"detect_objects"` // ex) ["person", "car", "truck", "bus"]
@@ -64,9 +67,9 @@ type CameraCreateRequest struct {
 type CameraUpdateRequest struct {
 	Desc string `json:"desc"`
 
-	RtspURL   string `json:"rtsp_url"`
-	WebRTCURL string `json:"webrtc_url"`
-	MediaURL  string `json:"media_url"`
+	RtspURL  string `json:"rtsp_url"`
+	RtspPath string `json:"rtsp_path"` // 빈 값이면 기존 rtsp_path 유지
+	MediaURL string `json:"media_url"`
 
 	ModelID       int      `json:"model_id"`
 	DetectObjects []string `json:"detect_objects"`
@@ -85,6 +88,14 @@ type CameraUpdateRequest struct {
 type ReqKV struct {
 	K string  `json:"k" binding:"required"`
 	V *string `json:"v"`
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// isEnabled는 카메라 활성 여부를 반환한다.
+// Enabled가 nil인 경우(구 설정파일)는 true로 간주한다.
+func (c *CameraCreateRequest) isEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // CreateCamera handles POST /api/camera.
@@ -146,6 +157,22 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 	if req.FFmpegCommand == "" {
 		req.FFmpegCommand = "ffmpeg"
 	}
+
+	// rtsp_path 기본값: rtsp_url이 있고 rtsp_path가 비어있으면 카메라 이름으로 자동 설정
+	if req.RtspURL != "" && req.RtspPath == "" {
+		req.RtspPath = req.Name
+	}
+	// rtsp_path 중복 검사
+	if req.RtspPath != "" && h.rtspPathInUse("", req.RtspPath) {
+		logger.GetLogger().Errorf("CreateCamera[%s]: rtsp_path %q is already in use", req.Name, req.RtspPath)
+		errorResponse(c, tick, http.StatusConflict, fmt.Sprintf("rtsp_path %q is already in use by another camera", req.RtspPath))
+		return
+	}
+	// webrtc_url, mediamtx_rtsp_url 자동 생성 (API 입력값 무시, 시스템이 채움)
+	req.WebRTCURL = h.buildWebRTCURL(req.RtspPath)
+	req.MediamtxRtspURL = h.buildMediamtxRtspURL(req.RtspPath)
+	// 신규 카메라는 항상 enabled = true
+	req.Enabled = boolPtr(true)
 
 	// Create camera data directories
 	if err := os.MkdirAll(req.OutputDir, 0755); err != nil {
@@ -245,11 +272,11 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		return
 	}
 
-	// 4. Event rules 캐시 초기화
+	// 5. Event rules 캐시 초기화
 	h.refreshCameraConfigCache(req.Name)
 
-	// 5. Automatically enable camera (start ffmpeg process)
-	if err := h.enableCameraInternal(c.Request.Context(), req.Name, &req); err != nil {
+	// 6. Automatically enable camera (start ffmpeg process)
+	if err := h.enableCameraInternal(c.Request.Context(), req.Name, &req, "CreateCamera"); err != nil {
 		logger.GetLogger().Warnf("CreateCamera[%s]: camera created but failed to start: %v", req.Name, err)
 		// Don't fail the request - camera was created successfully
 	}
@@ -587,10 +614,27 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		return
 	}
 
+	// rtsp_path 중복 검사: 변경되는 경우에만, 다른 카메라가 동일한 path를 사용 중이면 409
+	if req.RtspPath != "" && req.RtspPath != existing.RtspPath && h.rtspPathInUse(id, req.RtspPath) {
+		logger.GetLogger().Errorf("UpdateCamera[%s]: rtsp_path %q is already in use by another camera", id, req.RtspPath)
+		errorResponse(c, tick, http.StatusConflict, fmt.Sprintf("rtsp_path %q is already in use by another camera", req.RtspPath))
+		return
+	}
+
 	// 기존 설정에 업데이트 필드 반영 (name, table은 유지)
+	oldRtspPath := existing.RtspPath
 	existing.Desc = req.Desc
 	existing.RtspURL = req.RtspURL
-	existing.WebRTCURL = req.WebRTCURL
+	if req.RtspPath != "" {
+		existing.RtspPath = req.RtspPath
+	}
+	// webrtc_url, mediamtx_rtsp_url 재생성: rtsp_url이 있으면 현재 rtsp_path 기준으로 갱신, 없으면 클리어
+	existing.WebRTCURL = h.buildWebRTCURL(existing.RtspPath)
+	existing.MediamtxRtspURL = h.buildMediamtxRtspURL(existing.RtspPath)
+	if existing.RtspURL == "" {
+		existing.WebRTCURL = ""
+		existing.MediamtxRtspURL = ""
+	}
 	existing.MediaURL = req.MediaURL
 	existing.ModelID = req.ModelID
 	existing.DetectObjects = req.DetectObjects
@@ -726,6 +770,34 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		}
 	}
 
+	// MediaMTX path 관리
+	// 1. path 이름이 변경된 경우 기존 path 삭제
+	if oldRtspPath != "" && oldRtspPath != existing.RtspPath {
+		if err := h.mediamtxClient.RemovePath(c.Request.Context(), oldRtspPath); err != nil {
+			logger.GetLogger().Warnf("UpdateCamera[%s]: failed to remove old MediaMTX path %q: %v", id, oldRtspPath, err)
+		} else {
+			logger.GetLogger().Infof("UpdateCamera[%s]: removed old MediaMTX path %q", id, oldRtspPath)
+		}
+	}
+	// 2. rtsp_url과 rtsp_path가 모두 설정된 경우 등록/갱신
+	if existing.RtspURL != "" && existing.RtspPath != "" {
+		if err := h.mediamtxClient.AddOrUpdatePath(c.Request.Context(), existing.RtspPath, mediamtx.PathConfig{
+			Source:         existing.RtspURL,
+			SourceProtocol: mediamtx.PathSourceTCP,
+		}); err != nil {
+			logger.GetLogger().Warnf("UpdateCamera[%s]: failed to update MediaMTX path %q: %v", id, existing.RtspPath, err)
+		} else {
+			logger.GetLogger().Infof("UpdateCamera[%s]: updated MediaMTX path %q -> %s", id, existing.RtspPath, existing.RtspURL)
+		}
+	} else if existing.RtspURL == "" && existing.RtspPath != "" && oldRtspPath == existing.RtspPath {
+		// rtsp_url이 지워졌고 path 이름은 그대로인 경우 → MediaMTX에서 path 제거
+		if err := h.mediamtxClient.RemovePath(c.Request.Context(), existing.RtspPath); err != nil {
+			logger.GetLogger().Warnf("UpdateCamera[%s]: failed to remove MediaMTX path %q after URL cleared: %v", id, existing.RtspPath, err)
+		} else {
+			logger.GetLogger().Infof("UpdateCamera[%s]: removed MediaMTX path %q (rtsp_url cleared)", id, existing.RtspPath)
+		}
+	}
+
 	// Event rules 캐시 갱신
 	h.refreshCameraConfigCache(id)
 
@@ -748,6 +820,12 @@ func (h *Handler) DeleteCamera(c *gin.Context) {
 		return
 	}
 
+	// 삭제 전에 rtsp_path를 미리 읽어둠
+	var rtspPathToRemove string
+	if cfg := h.getCameraConfig(id); cfg != nil {
+		rtspPathToRemove = cfg.RtspPath
+	}
+
 	if err := os.Remove(cameraPath); err != nil {
 		logger.GetLogger().Errorf("DeleteCamera[%s]: failed to delete camera config file %q: %v", id, cameraPath, err)
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to delete camera config file")
@@ -760,6 +838,15 @@ func (h *Handler) DeleteCamera(c *gin.Context) {
 	for _, mvsFile := range mvsFiles {
 		if err := os.Remove(mvsFile); err != nil {
 			logger.GetLogger().Warnf("DeleteCamera[%s]: failed to remove mvs file %q: %v", id, mvsFile, err)
+		}
+	}
+
+	// MediaMTX path 삭제
+	if rtspPathToRemove != "" {
+		if err := h.mediamtxClient.RemovePath(c.Request.Context(), rtspPathToRemove); err != nil {
+			logger.GetLogger().Warnf("DeleteCamera[%s]: failed to remove MediaMTX path %q: %v", id, rtspPathToRemove, err)
+		} else {
+			logger.GetLogger().Infof("DeleteCamera[%s]: removed MediaMTX path %q", id, rtspPathToRemove)
 		}
 	}
 
@@ -811,9 +898,10 @@ func (h *Handler) TestCameraConnection(c *gin.Context) {
 
 // enableCameraInternal starts the ffmpeg restart loop for a camera.
 // If cam is nil, it will read the camera config from file.
+// caller is used for log prefixes (e.g. "CreateCamera", "EnableCamera").
 // The first ffmpeg start is performed synchronously; errors are returned to the caller.
 // Subsequent restarts run in the background with exponential backoff.
-func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *CameraCreateRequest) error {
+func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *CameraCreateRequest, caller string) error {
 	// Check if already running
 	h.processMu.Lock()
 	if _, running := h.processes[id]; running {
@@ -860,6 +948,18 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 		}
 	}
 
+	// MediaMTX path 등록 (rtsp_url과 rtsp_path가 모두 설정된 경우)
+	if cam.RtspURL != "" && cam.RtspPath != "" {
+		if err := h.mediamtxClient.AddOrUpdatePath(ctx, cam.RtspPath, mediamtx.PathConfig{
+			Source:         cam.RtspURL,
+			SourceProtocol: mediamtx.PathSourceTCP,
+		}); err != nil {
+			logger.GetLogger().Warnf("%s[%s]: failed to register MediaMTX path %q: %v", caller, id, cam.RtspPath, err)
+		} else {
+			logger.GetLogger().Infof("%s[%s]: registered MediaMTX path %q -> %s", caller, id, cam.RtspPath, cam.RtspURL)
+		}
+	}
+
 	// Resolve ffmpeg binary
 	ffmpegBin := "ffmpeg"
 	if cam.FFmpegCommand != "" {
@@ -890,6 +990,11 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 	// Create output directory
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Backward compat: 기존 설정 파일에 mediamtx_rtsp_url이 없는 경우 rtsp_path로 자동 생성
+	if cam.MediamtxRtspURL == "" && cam.RtspPath != "" {
+		cam.MediamtxRtspURL = h.buildMediamtxRtspURL(cam.RtspPath)
 	}
 
 	// Build ffmpeg args
@@ -1098,8 +1203,21 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 	tick := time.Now()
 	id := c.Param("id")
 
+	// config 파일에 enabled: true 저장
+	if cfg := h.getCameraConfig(id); cfg != nil {
+		cfg.Enabled = boolPtr(true)
+		cameraPath := filepath.Join(h.cameraDir, id+".json")
+		if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+			if err := os.WriteFile(cameraPath, data, 0644); err != nil {
+				logger.GetLogger().Warnf("EnableCamera[%s]: failed to save enabled state: %v", id, err)
+			} else {
+				h.refreshCameraConfigCache(id)
+			}
+		}
+	}
+
 	// Use internal function to enable camera
-	if err := h.enableCameraInternal(c.Request.Context(), id, nil); err != nil {
+	if err := h.enableCameraInternal(c.Request.Context(), id, nil, "EnableCamera"); err != nil {
 		if strings.Contains(err.Error(), "already running") {
 			errorResponse(c, tick, http.StatusConflict, err.Error())
 			return
@@ -1172,6 +1290,26 @@ func (h *Handler) DisableCamera(c *gin.Context) {
 		}
 	}
 
+	// MediaMTX path 삭제 + config 파일에 enabled: false 저장
+	if cfg := h.getCameraConfig(id); cfg != nil {
+		if cfg.RtspPath != "" {
+			if err := h.mediamtxClient.RemovePath(c.Request.Context(), cfg.RtspPath); err != nil {
+				logger.GetLogger().Warnf("DisableCamera[%s]: failed to remove MediaMTX path %q: %v", id, cfg.RtspPath, err)
+			} else {
+				logger.GetLogger().Infof("DisableCamera[%s]: removed MediaMTX path %q", id, cfg.RtspPath)
+			}
+		}
+		cfg.Enabled = boolPtr(false)
+		cameraPath := filepath.Join(h.cameraDir, id+".json")
+		if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+			if err := os.WriteFile(cameraPath, data, 0644); err != nil {
+				logger.GetLogger().Warnf("DisableCamera[%s]: failed to save disabled state: %v", id, err)
+			} else {
+				h.refreshCameraConfigCache(id)
+			}
+		}
+	}
+
 	successResponse(c, tick, map[string]string{
 		"name":   id,
 		"status": "stopped",
@@ -1203,9 +1341,15 @@ func buildFFmpegArgs(cam CameraCreateRequest) []string {
 		}
 	}
 
+	// ffmpeg 입력 URL: MediaMTX 프록시 URL이 있으면 사용, 없으면 원본 rtsp_url 직접 사용
+	inputURL := cam.RtspURL
+	if cam.MediamtxRtspURL != "" {
+		inputURL = cam.MediamtxRtspURL
+	}
+
 	args := make([]string, 0, len(inputArgs)+len(outputArgs)+5)
 	args = append(args, inputArgs...)
-	args = append(args, "-i", cam.RtspURL)
+	args = append(args, "-i", inputURL)
 	args = append(args, "-an") // 오디오 트랙 제외 (비디오 전용)
 	args = append(args, outputArgs...)
 

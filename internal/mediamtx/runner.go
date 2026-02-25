@@ -225,15 +225,23 @@ func (r *Runner) Status() ServerStatus {
 
 // buildExecArgs는 실행 인자를 생성한다.
 // ConfigFile이 비어있으면 바이너리와 같은 디렉토리에서 mediamtx.yml을 자동 탐색한다.
+// 상대 경로는 절대 경로로 변환하여 MediaMTX가 올바른 파일에 쓰도록 한다.
 func (r *Runner) buildExecArgs() []string {
 	var args []string
 
 	configFile := r.cfg.ConfigFile
 	if configFile == "" {
-		candidate := filepath.Join(filepath.Dir(r.cfg.Binary), "mediamtx.yml")
+		// 상대 경로를 절대 경로로 변환 후 config 파일 탐색
+		binaryAbs, err := filepath.Abs(r.cfg.Binary)
+		if err != nil {
+			binaryAbs = r.cfg.Binary
+		}
+		candidate := filepath.Join(filepath.Dir(binaryAbs), "mediamtx.yml")
 		if _, err := os.Stat(candidate); err == nil {
 			configFile = candidate
 			logger.GetLogger().Infof("[mediamtx] auto-detected config: %s", configFile)
+		} else {
+			logger.GetLogger().Warnf("[mediamtx] config file not found at %s: %v", candidate, err)
 		}
 	}
 	if configFile != "" {

@@ -49,7 +49,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffmpegBinary, mediamtxCfg.Host, mediamtxCfg.Port),
+		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffmpegBinary, mediamtxCfg.Host, mediamtxCfg.Port, mediamtxCfg.WebRTCPort, mediamtxCfg.RtspServerPort),
 	}
 	s.routes(serveWeb)
 
@@ -146,6 +146,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// 서버 시작 시 MediaMTX path 등록 후 카메라 프로세스 복원
+	go s.handler.startupCamerasAsync(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
