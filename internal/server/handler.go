@@ -45,10 +45,12 @@ var defaultSensorLabels = map[string]string{
 var tagPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 
 // cameraProcess tracks a running ffmpeg process for a camera.
+// cmd is protected by mu and may be nil during backoff between restarts.
 type cameraProcess struct {
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
+	cancel    context.CancelFunc // cancels the entire restart loop
 	startedAt time.Time
+	mu        sync.Mutex
+	cmd       *exec.Cmd // current ffmpeg cmd; nil while in backoff
 }
 
 // Handler handles API requests.
@@ -224,7 +226,13 @@ func (h *Handler) Shutdown() {
 	h.processMu.Unlock()
 
 	for id, proc := range procs {
-		logger.GetLogger().Infof("[camera:%s] shutting down ffmpeg (PID: %d)", id, proc.cmd.Process.Pid)
+		proc.mu.Lock()
+		pid := 0
+		if proc.cmd != nil && proc.cmd.Process != nil {
+			pid = proc.cmd.Process.Pid
+		}
+		proc.mu.Unlock()
+		logger.GetLogger().Infof("[camera:%s] shutting down ffmpeg (PID: %d)", id, pid)
 		proc.cancel()
 	}
 }

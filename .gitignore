@@ -1,10 +1,3 @@
-*.py
-server-v3-info.txt
-script
-ffmpeg
-ffprobe
-!tools/*/ffmpeg
-!tools/*/ffprobe
 dist
 tmp
 *.txt
@@ -12,5 +5,3 @@ tmp
 .env
 logs/*
 .md
-neo-blackbox
-neo-blackbox.exe

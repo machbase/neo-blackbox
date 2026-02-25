@@ -809,8 +809,10 @@ func (h *Handler) TestCameraConnection(c *gin.Context) {
 	successResponse(c, tick, gin.H{"ok": true, "message": "connected"})
 }
 
-// enableCameraInternal starts ffmpeg process and watcher for a camera.
+// enableCameraInternal starts the ffmpeg restart loop for a camera.
 // If cam is nil, it will read the camera config from file.
+// The first ffmpeg start is performed synchronously; errors are returned to the caller.
+// Subsequent restarts run in the background with exponential backoff.
 func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *CameraCreateRequest) error {
 	// Check if already running
 	h.processMu.Lock()
@@ -874,79 +876,201 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 	// Build ffmpeg args
 	args := buildFFmpegArgs(*cam)
 
-	// Create log file
+	// Ensure log directory exists
 	if err := os.MkdirAll(h.logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 	logFilePath := filepath.Join(h.logDir, id+"_ffmpeg.log")
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create log file: %w", err)
-	}
 
-	// Start ffmpeg process
-	cmdCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(cmdCtx, ffmpegBin, args...)
-	cmd.Dir = outputDir
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	setPdeathsig(cmd) // 부모 프로세스 종료 시 ffmpeg에 SIGTERM 전달
-
-	logger.GetLogger().Infof("[camera:%s] ffmpeg start: %s %s (log: %s)", id, ffmpegBin, strings.Join(args, " "), logFilePath)
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		logFile.Close()
-		return fmt.Errorf("failed to start ffmpeg: %w", err)
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	proc := &cameraProcess{
+		cancel:    loopCancel,
+		startedAt: time.Now(),
 	}
 
 	h.processMu.Lock()
-	h.processes[id] = &cameraProcess{cmd: cmd, cancel: cancel, startedAt: time.Now()}
+	h.processes[id] = proc
 	h.processMu.Unlock()
 
-	// Add watcher rule
-	rule := watcher.WatcherRule{
-		CameraID:  id,
-		Table:     cam.Table,
-		SourceDir: outputDir,
-		TargetDir: archiveDir,
-		Ext:       ".m4s",
-	}
+	// firstErr receives the result of the very first ffmpeg start.
+	// The loop goroutine sends once; nil means started successfully.
+	firstErr := make(chan error, 1)
+	go h.runCameraLoop(loopCtx, id, cam, ffmpegBin, args, outputDir, archiveDir, logFilePath, proc, firstErr)
 
-	if err := h.watcher.AddWatch(ctx, rule); err != nil {
-		// Rollback: stop ffmpeg
-		logger.GetLogger().Errorf("[camera:%s] failed to add watcher, stopping ffmpeg: %v", id, err)
-		cancel()
+	if err := <-firstErr; err != nil {
+		// First start failed – clean up and propagate the error.
 		h.processMu.Lock()
-		delete(h.processes, id)
+		if h.processes[id] == proc {
+			delete(h.processes, id)
+		}
 		h.processMu.Unlock()
-		return fmt.Errorf("failed to add watcher: %w", err)
+		loopCancel()
+		return err
 	}
-
-	// Monitor process termination (async)
-	go func() {
-		err := cmd.Wait()
-
-		// Close log file
-		logFile.Close()
-
-		h.processMu.Lock()
-		delete(h.processes, id)
-		h.processMu.Unlock()
-
-		// Remove watcher when ffmpeg exits
-		if err := h.watcher.RemoveWatch(context.Background(), id); err != nil {
-			logger.GetLogger().Errorf("[camera:%s] failed to remove watcher: %v", id, err)
-		}
-
-		if err != nil {
-			logger.GetLogger().Warnf("[camera:%s] ffmpeg exited: %v", id, err)
-		} else {
-			logger.GetLogger().Infof("[camera:%s] ffmpeg exited normally", id)
-		}
-	}()
 
 	return nil
+}
+
+// runCameraLoop runs ffmpeg in a restart loop until ctx is cancelled.
+// On unexpected exit it waits (with exponential backoff) before restarting.
+// On intentional stop (ctx cancelled) it waits for the current process to exit
+// and removes the watcher, then removes itself from h.processes.
+func (h *Handler) runCameraLoop(
+	ctx context.Context,
+	id string,
+	cam *CameraCreateRequest,
+	ffmpegBin string,
+	args []string,
+	outputDir, archiveDir, logFilePath string,
+	proc *cameraProcess,
+	firstErr chan<- error,
+) {
+	const (
+		initBackoff = 3 * time.Second
+		maxBackoff  = 30 * time.Second
+		stableTime  = 1 * time.Minute
+	)
+	backoff := initBackoff
+	isFirst := true
+
+	defer func() {
+		h.processMu.Lock()
+		if h.processes[id] == proc {
+			delete(h.processes, id)
+		}
+		h.processMu.Unlock()
+		logger.GetLogger().Infof("[camera:%s] restart loop exited", id)
+	}()
+
+	for {
+		if ctx.Err() != nil {
+			if isFirst {
+				firstErr <- ctx.Err()
+			}
+			return
+		}
+
+		startTime := time.Now()
+
+		// Open (append) log file for this attempt.
+		logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			if isFirst {
+				firstErr <- fmt.Errorf("failed to open log file: %w", err)
+				return
+			}
+			logger.GetLogger().Warnf("[camera:%s] failed to open log file: %v, retrying in %v...", id, err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+			continue
+		}
+
+		// Start ffmpeg (no CommandContext – we manage lifecycle manually so
+		// we can wait cleanly before returning on intentional stop).
+		cmd := exec.Command(ffmpegBin, args...)
+		cmd.Dir = outputDir
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		setPdeathsig(cmd)
+
+		logger.GetLogger().Infof("[camera:%s] ffmpeg start: %s %s (log: %s)", id, ffmpegBin, strings.Join(args, " "), logFilePath)
+
+		if err := cmd.Start(); err != nil {
+			logFile.Close()
+			if isFirst {
+				firstErr <- fmt.Errorf("failed to start ffmpeg: %w", err)
+				return
+			}
+			logger.GetLogger().Warnf("[camera:%s] ffmpeg failed to start: %v, retrying in %v...", id, err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+			continue
+		}
+
+		proc.mu.Lock()
+		proc.cmd = cmd
+		proc.mu.Unlock()
+
+		// Register watcher for this camera's output directory.
+		rule := watcher.WatcherRule{
+			CameraID:  id,
+			Table:     cam.Table,
+			SourceDir: outputDir,
+			TargetDir: archiveDir,
+			Ext:       ".m4s",
+		}
+		if err := h.watcher.AddWatch(context.Background(), rule); err != nil {
+			logger.GetLogger().Errorf("[camera:%s] failed to add watcher: %v", id, err)
+			// Continue even if watcher fails; ffmpeg is already running.
+		}
+
+		if isFirst {
+			firstErr <- nil
+			isFirst = false
+		}
+
+		// Wait for process exit in a goroutine so we can also select on ctx.
+		exited := make(chan error, 1)
+		go func() {
+			exited <- cmd.Wait()
+		}()
+
+		var exitErr error
+		select {
+		case <-ctx.Done():
+			// Intentional stop: kill ffmpeg and wait for it to exit.
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+			exitErr = <-exited
+		case exitErr = <-exited:
+			// Process exited on its own; ctx may or may not be cancelled.
+		}
+
+		logFile.Close()
+
+		proc.mu.Lock()
+		proc.cmd = nil
+		proc.mu.Unlock()
+
+		if werr := h.watcher.RemoveWatch(context.Background(), id); werr != nil {
+			logger.GetLogger().Warnf("[camera:%s] failed to remove watcher: %v", id, werr)
+		}
+
+		if ctx.Err() != nil {
+			// Intentional stop – exit the loop.
+			return
+		}
+
+		// Unexpected exit – schedule a restart.
+		uptime := time.Since(startTime)
+		if uptime >= stableTime {
+			backoff = initBackoff
+		}
+		logger.GetLogger().Warnf("[camera:%s] ffmpeg exited unexpectedly (uptime: %v, err: %v), restarting in %v...",
+			id, uptime.Truncate(time.Second), exitErr, backoff)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+		}
+	}
 }
 
 // EnableCamera handles POST /api/camera/:id/enable.
@@ -977,11 +1101,15 @@ func (h *Handler) EnableCamera(c *gin.Context) {
 	// Get PID from process map
 	h.processMu.Lock()
 	proc, ok := h.processes[id]
+	h.processMu.Unlock()
 	var pid int
 	if ok {
-		pid = proc.cmd.Process.Pid
+		proc.mu.Lock()
+		if proc.cmd != nil && proc.cmd.Process != nil {
+			pid = proc.cmd.Process.Pid
+		}
+		proc.mu.Unlock()
 	}
-	h.processMu.Unlock()
 
 	successResponse(c, tick, map[string]any{
 		"name":   id,
@@ -1003,16 +1131,17 @@ func (h *Handler) DisableCamera(c *gin.Context) {
 		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("camera '%s' is not running", id))
 		return
 	}
+	// Remove from the map immediately so subsequent status queries show "stopped".
+	// The loop goroutine's deferred delete is a safe no-op when the entry is gone.
 	delete(h.processes, id)
 	h.processMu.Unlock()
 
-	// ffmpeg 중지
+	// Cancel the restart loop (kills ffmpeg and stops retrying).
 	proc.cancel()
 
-	// watcher 제거 (ffmpeg 종료 go routine에서도 제거하지만, 명시적으로 제거)
+	// Remove watcher proactively; the loop goroutine also removes it, which is safe (idempotent).
 	if err := h.watcher.RemoveWatch(c.Request.Context(), id); err != nil {
 		logger.GetLogger().Warnf("[camera:%s] failed to remove watcher: %v", id, err)
-		// 에러가 발생해도 계속 진행 (이미 제거되었을 수 있음)
 	}
 
 	// MVS 파일 삭제 (detection 프로그램이 비활성 카메라를 인식하지 않도록)
@@ -1110,13 +1239,17 @@ func (h *Handler) GetCameraStatus(c *gin.Context) {
 
 	h.processMu.Lock()
 	proc, running := h.processes[id]
+	h.processMu.Unlock()
 	if running {
 		status = "running"
-		pid = proc.cmd.Process.Pid
+		proc.mu.Lock()
+		if proc.cmd != nil && proc.cmd.Process != nil {
+			pid = proc.cmd.Process.Pid
+		}
+		proc.mu.Unlock()
 		startedAt = proc.startedAt.Format(time.RFC3339)
 		uptime = time.Since(proc.startedAt).Truncate(time.Second).String()
 	}
-	h.processMu.Unlock()
 
 	resp := map[string]any{
 		"name":   id,
@@ -1169,7 +1302,11 @@ func (h *Handler) GetCamerasHealth(c *gin.Context) {
 
 		if proc, ok := h.processes[name]; ok {
 			cam["status"] = "running"
-			cam["pid"] = proc.cmd.Process.Pid
+			proc.mu.Lock()
+			if proc.cmd != nil && proc.cmd.Process != nil {
+				cam["pid"] = proc.cmd.Process.Pid
+			}
+			proc.mu.Unlock()
 			cam["started_at"] = proc.startedAt.Format(time.RFC3339)
 			cam["uptime"] = time.Since(proc.startedAt).Truncate(time.Second).String()
 			runningCount++
