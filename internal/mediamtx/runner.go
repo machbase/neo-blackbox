@@ -28,6 +28,7 @@ type Runner struct {
 	cfg    Config
 	logDir string
 	cmd    *exec.Cmd
+	exited chan struct{} // closed when the current process exits
 	mu     sync.Mutex
 }
 
@@ -46,6 +47,7 @@ func New(cfg Config, logDir string) *Runner {
 }
 
 // Run은 MediaMTX를 시작하고 ctx가 취소될 때까지 대기한 후 종료한다.
+// 프로세스가 예기치않게 종료되면 backoff 후 자동으로 재시작한다.
 // binary가 설정되지 않으면 즉시 반환한다 (외부 서버 사용).
 // main.go의 errgroup에서 g.Go(runner.Run) 형태로 사용한다.
 func (r *Runner) Run(ctx context.Context) error {
@@ -54,13 +56,56 @@ func (r *Runner) Run(ctx context.Context) error {
 		return nil
 	}
 
-	if err := r.Start(); err != nil {
-		logger.GetLogger().Warnf("[mediamtx] failed to start: %v", err)
-		return nil // mediamtx 실패가 백엔드 전체를 중단시키지 않음
-	}
+	const (
+		initBackoff = 3 * time.Second
+		maxBackoff  = 30 * time.Second
+		stableTime  = 1 * time.Minute // 이 시간 이상 실행됐으면 backoff 리셋
+	)
+	backoff := initBackoff
 
-	<-ctx.Done()
-	return r.Stop()
+	for {
+		startTime := time.Now()
+
+		if err := r.Start(); err != nil {
+			logger.GetLogger().Warnf("[mediamtx] failed to start: %v, retrying in %v...", err, backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+			continue
+		}
+
+		r.mu.Lock()
+		exited := r.exited
+		r.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return r.Stop()
+		case <-exited:
+			if ctx.Err() != nil {
+				// ctx 취소로 인한 종료 — 재시작 불필요
+				return nil
+			}
+			uptime := time.Since(startTime)
+			if uptime >= stableTime {
+				backoff = initBackoff // 충분히 오래 실행됐으면 backoff 리셋
+			}
+			logger.GetLogger().Warnf("[mediamtx] exited unexpectedly (uptime: %v), restarting in %v...", uptime.Round(time.Second), backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+		}
+	}
 }
 
 // Start는 로컬 MediaMTX 서버를 시작한다.
@@ -97,11 +142,14 @@ func (r *Runner) Start() error {
 	}
 
 	r.cmd = cmd
+	exited := make(chan struct{})
+	r.exited = exited
 	logger.GetLogger().Infof("[mediamtx] started (PID: %d, log: %s)", cmd.Process.Pid, logPath)
 
 	// 백그라운드에서 프로세스 종료 대기
 	go func() {
 		defer logFile.Close()
+		defer close(exited)
 		err := cmd.Wait()
 		r.mu.Lock()
 		r.cmd = nil
