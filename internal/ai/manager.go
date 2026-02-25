@@ -18,6 +18,7 @@ type Manager struct {
 	cfg    config.AIConfig
 	logDir string
 	cmd    *exec.Cmd
+	exited chan struct{} // closed when the current process exits
 	mu     sync.Mutex
 }
 
@@ -30,6 +31,7 @@ func New(cfg config.AIConfig, logDir string) *Manager {
 }
 
 // Run은 AI manager를 시작하고 ctx가 취소될 때까지 대기한 후 종료한다.
+// 프로세스가 예기치않게 종료되면 backoff 후 자동으로 재시작한다.
 // binary가 설정되지 않으면 즉시 반환한다 (비활성화).
 // main.go의 errgroup에서 g.Go(aiMgr.Run) 형태로 사용한다.
 func (m *Manager) Run(ctx context.Context) error {
@@ -38,13 +40,55 @@ func (m *Manager) Run(ctx context.Context) error {
 		return nil
 	}
 
-	if err := m.start(); err != nil {
-		logger.GetLogger().Warnf("[ai] failed to start manager: %v", err)
-		return nil // manager 실패가 백엔드 전체를 중단시키지 않음
-	}
+	const (
+		initBackoff = 3 * time.Second
+		maxBackoff  = 30 * time.Second
+		stableTime  = 1 * time.Minute
+	)
+	backoff := initBackoff
 
-	<-ctx.Done()
-	return m.Stop()
+	for {
+		startTime := time.Now()
+
+		if err := m.start(); err != nil {
+			logger.GetLogger().Warnf("[ai] failed to start manager: %v, retrying in %v...", err, backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+			continue
+		}
+
+		m.mu.Lock()
+		exited := m.exited
+		m.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return m.Stop()
+		case <-exited:
+			if ctx.Err() != nil {
+				return nil
+			}
+			uptime := time.Since(startTime)
+			if uptime >= stableTime {
+				backoff = initBackoff
+			}
+			logger.GetLogger().Warnf("[ai] manager exited unexpectedly (uptime: %v), restarting in %v...", uptime.Round(time.Second), backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			}
+		}
+	}
 }
 
 // start는 manager 프로세스를 실행한다.
@@ -58,6 +102,7 @@ func (m *Manager) start() error {
 
 	args := []string{"--config", m.cfg.ConfigFile}
 	cmd := exec.Command(m.cfg.Binary, args...)
+	cmd.Dir = filepath.Dir(m.cfg.Binary) // ai/ 디렉토리를 working directory로 설정
 
 	// 로그 파일 설정
 	if err := os.MkdirAll(m.logDir, 0o755); err != nil {
@@ -79,11 +124,14 @@ func (m *Manager) start() error {
 	}
 
 	m.cmd = cmd
+	exited := make(chan struct{})
+	m.exited = exited
 	logger.GetLogger().Infof("[ai] manager started (PID: %d, log: %s)", cmd.Process.Pid, logPath)
 
 	// 백그라운드에서 프로세스 종료 대기
 	go func() {
 		defer logFile.Close()
+		defer close(exited)
 		err := cmd.Wait()
 		m.mu.Lock()
 		m.cmd = nil
