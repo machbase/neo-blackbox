@@ -841,6 +841,25 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 		return fmt.Errorf("camera has no rtsp_url configured")
 	}
 
+	// Recreate MVS file if it was deleted by DisableCamera.
+	mvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
+	if existing, _ := filepath.Glob(mvsPattern); len(existing) == 0 {
+		mvs := MvsCameraCreateRequest{
+			CameraID:      id,
+			CameraURL:     cam.RtspURL,
+			ModelID:       cam.ModelID,
+			DetectObjects: cam.DetectObjects,
+		}
+		if mvsJSON, err := json.MarshalIndent(mvs, "", "  "); err == nil {
+			if err := os.MkdirAll(h.mvsDir, 0755); err == nil {
+				mvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, mvs.ModelID, time.Now().Unix())
+				if err := os.WriteFile(filepath.Join(h.mvsDir, mvsFileName), mvsJSON, 0644); err != nil {
+					logger.GetLogger().Warnf("[camera:%s] failed to recreate mvs file: %v", id, err)
+				}
+			}
+		}
+	}
+
 	// Resolve ffmpeg binary
 	ffmpegBin := "ffmpeg"
 	if cam.FFmpegCommand != "" {
