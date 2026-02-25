@@ -359,6 +359,40 @@ func Package(target string) error {
 		fmt.Printf("Warning: failed to download AI release from GitHub (%v), using local files\n", err)
 	}
 
+	// Copy backend runtime files required by neo package contract.
+	backendDir := filepath.Join(packageDir, ".backend")
+	if err := os.MkdirAll(backendDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backend directory: %w", err)
+	}
+
+	backendConfigSrc := ".backend.yml"
+	backendConfigDest := filepath.Join(packageDir, ".backend.yml")
+	if _, err := os.Stat(backendConfigSrc); err != nil {
+		return fmt.Errorf("missing required backend config %s: %w", backendConfigSrc, err)
+	}
+	fmt.Printf("Copying %s to %s\n", backendConfigSrc, backendConfigDest)
+	if err := sh.Copy(backendConfigDest, backendConfigSrc); err != nil {
+		return fmt.Errorf("failed to copy backend config: %w", err)
+	}
+
+	for _, script := range []string{"start.sh", "stop.sh"} {
+		scriptSrc := filepath.Join("scripts", script)
+		scriptDest := filepath.Join(backendDir, script)
+
+		if _, err := os.Stat(scriptSrc); err != nil {
+			return fmt.Errorf("missing required backend script %s: %w", scriptSrc, err)
+		}
+		fmt.Printf("Copying %s to %s\n", scriptSrc, scriptDest)
+		if err := sh.Copy(scriptDest, scriptSrc); err != nil {
+			return fmt.Errorf("failed to copy backend script %s: %w", script, err)
+		}
+		if targetOS != "windows" {
+			if err := os.Chmod(scriptDest, 0755); err != nil {
+				return fmt.Errorf("failed to make backend script executable %s: %w", scriptDest, err)
+			}
+		}
+	}
+
 	// Create README
 	readmeContent := fmt.Sprintf(`Blackbox Backend Package
 ========================
@@ -369,7 +403,8 @@ Platform: %s
 Contents:
 - bin/%s: Main application binary
 - config/: Configuration files
-- tools/: Platform-specific tools (mediamtx, ffmpeg, ffprobe, ...)
+- tools/: Platform-specific tools (ffmpeg, mediamtx, ai manager, ...)
+- .backend.yml and .backend/: Runtime launcher configuration and scripts
 - ai/: AI manager and core binaries (blackbox-ai-manager, blackbox-ai-core, config.json)
   - ai/models/: AI model files
   - ai/mvs/: MVS working files
