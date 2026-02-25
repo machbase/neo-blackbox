@@ -1,0 +1,107 @@
+# NOTE: This package definition is primarily managed in neo-pkg and mirrored here for history tracking.
+distributable:
+  github: machbase/neo-blackbox
+  strip_components: 1
+
+description: |
+  neo-blackbox package for machbase-neo.
+  Built from the repository latest release source per target platform.
+
+platforms:
+  - linux/amd64
+  - linux/arm64
+  - darwin/amd64
+  - darwin/arm64
+
+build:
+  scripts:
+    - run: |
+        set -e
+
+        ROOT_DIR="$(pwd)"
+        rm -rf "${ROOT_DIR}/dist"
+        mkdir -p "${ROOT_DIR}/dist"
+
+        TARGET="$(go env GOOS)-$(go env GOARCH)"
+        case "${TARGET}" in
+          linux-amd64|linux-arm64|darwin-amd64|darwin-arm64) ;;
+          *)
+            echo "ERROR: unsupported target ${TARGET}"
+            exit 1
+            ;;
+        esac
+
+        if ! command -v mage >/dev/null 2>&1; then
+          go install github.com/magefile/mage@v1.15.0
+        fi
+
+        MAGE_BIN="$(go env GOPATH)/bin/mage"
+        if [ -x "${MAGE_BIN}" ]; then
+          MAGE="${MAGE_BIN}"
+        else
+          MAGE="mage"
+        fi
+
+        "${MAGE}" package "${TARGET}"
+
+        PACKAGE_DIR="${ROOT_DIR}/dist/neo-blackbox-${TARGET}"
+        FINAL_DIR="${ROOT_DIR}/dist.final"
+
+        ensure_file() {
+          if [ ! -f "$1" ]; then
+            echo "ERROR: missing required file: $1"
+            exit 1
+          fi
+        }
+
+        ensure_exec() {
+          if [ ! -x "$1" ]; then
+            echo "ERROR: missing required executable: $1"
+            exit 1
+          fi
+        }
+
+        ensure_dir() {
+          if [ ! -d "$1" ]; then
+            echo "ERROR: missing required directory: $1"
+            exit 1
+          fi
+        }
+
+        ensure_dir "${PACKAGE_DIR}"
+        ensure_exec "${PACKAGE_DIR}/bin/neo-blackbox"
+        ensure_file "${PACKAGE_DIR}/config/config.yaml"
+        ensure_file "${PACKAGE_DIR}/.backend.yml"
+        ensure_file "${PACKAGE_DIR}/.backend/start.sh"
+        ensure_file "${PACKAGE_DIR}/.backend/stop.sh"
+        chmod +x "${PACKAGE_DIR}/.backend/start.sh" "${PACKAGE_DIR}/.backend/stop.sh"
+        ensure_exec "${PACKAGE_DIR}/.backend/start.sh"
+        ensure_exec "${PACKAGE_DIR}/.backend/stop.sh"
+
+        rm -rf "${FINAL_DIR}"
+        mv "${PACKAGE_DIR}" "${FINAL_DIR}"
+        rm -rf "${ROOT_DIR}/dist"
+        mv "${FINAL_DIR}" "${ROOT_DIR}/dist"
+
+provides:
+  - dist/
+
+test:
+  scripts:
+    - run: |
+        test -x dist/bin/neo-blackbox
+        test -f dist/config/config.yaml
+        test -f dist/.backend.yml
+        test -x dist/.backend/start.sh
+        test -x dist/.backend/stop.sh
+
+install:
+  scripts:
+    - run: |
+        echo "Installing neo-blackbox package..."
+        chmod +x ./.backend/start.sh ./.backend/stop.sh
+
+uninstall:
+  scripts:
+    - run: |
+        echo "Uninstalling neo-blackbox package..."
