@@ -230,7 +230,12 @@ func (r *Runner) buildExecArgs() []string {
 	var args []string
 
 	configFile := r.cfg.ConfigFile
-	if configFile == "" {
+	if configFile != "" {
+		// 명시적으로 지정된 경우 절대 경로로 변환
+		if abs, err := filepath.Abs(configFile); err == nil {
+			configFile = abs
+		}
+	} else {
 		// 상대 경로를 절대 경로로 변환 후 config 파일 탐색
 		binaryAbs, err := filepath.Abs(r.cfg.Binary)
 		if err != nil {
