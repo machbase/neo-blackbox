@@ -17,6 +17,7 @@ import (
 	"neo-blackbox/internal/logger"
 	"neo-blackbox/internal/mediamtx"
 	"neo-blackbox/internal/server"
+	"neo-blackbox/internal/tools"
 	"neo-blackbox/internal/watcher"
 
 	"golang.org/x/sync/errgroup"
@@ -47,6 +48,16 @@ func run(c context.Context, path string, serveWeb bool) error {
 	cfg, err := config.Load(path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	// ffmpeg/ffprobe가 .gz 압축 상태라면 시작 시 자동 해제
+	for _, bin := range []string{cfg.FFmpeg.Binary, cfg.FFmpeg.Defaults.ProbeBinary} {
+		if bin == "" {
+			continue
+		}
+		if err := tools.EnsureUnpacked(bin); err != nil {
+			return fmt.Errorf("unpack %s: %w", bin, err)
+		}
 	}
 
 	// Initialize logger

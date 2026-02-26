@@ -76,7 +76,6 @@ func resolveRelativePaths(cfg *AppConfig, base string) {
 	cfg.AI.Binary = resolve(cfg.AI.Binary)
 	cfg.AI.ConfigFile = resolve(cfg.AI.ConfigFile)
 	cfg.Log.Dir = resolve(cfg.Log.Dir)
-	cfg.Log.File.Filename = resolve(cfg.Log.File.Filename)
 }
 
 func applyDefaults(cfg *AppConfig) {

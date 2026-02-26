@@ -67,7 +67,8 @@ type Handler struct {
 	ffmpegBinary         string
 	ffRunner             *ffmpeg.FFmpegRunner
 	mediamtxClient         *mediamtx.Client // MediaMTX HTTP API 클라이언트
-	mediamtxHost           string           // MediaMTX 서버 호스트 (heartbeat용)
+	mediamtxHost           string           // MediaMTX 내부 API 호스트 (heartbeat용)
+	mediamtxWebRTCHost     string           // 프론트에 노출할 WebRTC URL 호스트 (실제 서버 IP)
 	mediamtxPort           int              // MediaMTX HTTP API 포트 (heartbeat용)
 	mediamtxWebRTCPort     int              // MediaMTX WebRTC 포트 (webrtc_url 생성용)
 	mediamtxRtspServerPort int              // MediaMTX RTSP 서버 포트 (ffmpeg용, 기본: 8554)
@@ -93,14 +94,14 @@ type Watcher interface {
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxPort int, mediamtxWebRTCPort int, mediamtxRtspServerPort int) *Handler {
+func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegRunner, dataDir, logDir, mvsDir, cameraDir, ffmpegBinary string, mediamtxHost string, mediamtxWebRTCHost string, mediamtxPort int, mediamtxWebRTCPort int, mediamtxRtspServerPort int) *Handler {
 	if dataDir == "" {
 		dataDir = "/data"
 	}
 	if logDir == "" {
 		logDir = "/var/log/blackbox"
 	}
-	mediamtxCfg := config.MediamtxConfig{Host: mediamtxHost, Port: mediamtxPort, WebRTCPort: mediamtxWebRTCPort, RtspServerPort: mediamtxRtspServerPort}
+	mediamtxCfg := config.MediamtxConfig{Host: mediamtxHost, WebRTCHost: mediamtxWebRTCHost, Port: mediamtxPort, WebRTCPort: mediamtxWebRTCPort, RtspServerPort: mediamtxRtspServerPort}
 	mediamtxCfg.ApplyDefaults()
 	h := &Handler{
 		machbase:               machbase,
@@ -113,6 +114,7 @@ func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegR
 		ffmpegBinary:           ffmpegBinary,
 		mediamtxClient:         mediamtx.NewClient(mediamtxCfg),
 		mediamtxHost:           mediamtxCfg.Host,
+		mediamtxWebRTCHost:     mediamtxCfg.WebRTCHost,
 		mediamtxPort:           mediamtxCfg.Port,
 		mediamtxWebRTCPort:     mediamtxCfg.WebRTCPort,
 		mediamtxRtspServerPort: mediamtxCfg.RtspServerPort,
@@ -615,7 +617,7 @@ func (h *Handler) buildWebRTCURL(pathName string) string {
 	if pathName == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s:%d/%s", h.mediamtxHost, h.mediamtxWebRTCPort, pathName)
+	return fmt.Sprintf("http://%s:%d/%s", h.mediamtxWebRTCHost, h.mediamtxWebRTCPort, pathName)
 }
 
 // buildMediamtxRtspURL generates the MediaMTX RTSP proxy URL for a given path name.

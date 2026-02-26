@@ -306,6 +306,10 @@ func Package(target string) error {
 				if entry.IsDir() {
 					continue
 				}
+				// Windows ADS(Zone.Identifier) 파일 스킵
+				if strings.Contains(entry.Name(), ":") {
+					continue
+				}
 				src := filepath.Join(toolsSrcDir, entry.Name())
 				var dest string
 				if filepath.Ext(entry.Name()) == ".onnx" {
@@ -400,12 +404,75 @@ For more information, see the project documentation.
 	return nil
 }
 
-// createTarGz creates a tar.gz archive
+// createTarGz creates a tar.gz archive using Go's native implementation.
+// 시스템 tar 명령어 대신 사용하여 exit code 1 (warning) 문제를 피한다.
 func createTarGz(sourceDir, targetFile string) error {
-	dir := filepath.Dir(sourceDir)
-	base := filepath.Base(sourceDir)
+	out, err := os.Create(targetFile)
+	if err != nil {
+		return fmt.Errorf("create archive: %w", err)
+	}
+	defer out.Close()
 
-	return sh.RunV("tar", "-czf", targetFile, "-C", dir, base)
+	gw := gzip.NewWriter(out)
+	tw := tar.NewWriter(gw)
+
+	base := filepath.Base(sourceDir)
+	walkErr := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		// archive 내 경로: {packageName}/{rel}
+		arcName := filepath.Join(base, rel)
+		if info.IsDir() {
+			return tw.WriteHeader(&tar.Header{
+				Typeflag: tar.TypeDir,
+				Name:     arcName + "/",
+				Mode:     int64(info.Mode()),
+				ModTime:  info.ModTime(),
+			})
+		}
+
+		hdr := &tar.Header{
+			Typeflag: tar.TypeReg,
+			Name:     arcName,
+			Size:     info.Size(),
+			Mode:     int64(info.Mode()),
+			ModTime:  info.ModTime(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(tw, f)
+		return err
+	})
+
+	if walkErr != nil {
+		tw.Close()
+		gw.Close()
+		return walkErr
+	}
+
+	// tar EOF marker 명시적으로 닫고 에러 체크
+	if err := tw.Close(); err != nil {
+		gw.Close()
+		return fmt.Errorf("finalize tar: %w", err)
+	}
+	// gzip footer 명시적으로 플러시하고 에러 체크
+	if err := gw.Close(); err != nil {
+		return fmt.Errorf("finalize gzip: %w", err)
+	}
+	return nil
 }
 
 // createZip creates a zip archive

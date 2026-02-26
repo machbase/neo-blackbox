@@ -136,6 +136,14 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		return
 	}
 
+	// 카메라 이름 중복 검사: 동일한 이름의 설정 파일이 이미 존재하면 거부
+	existingPath := filepath.Join(h.cameraDir, req.Name+".json")
+	if _, err := os.Stat(existingPath); err == nil {
+		logger.GetLogger().Errorf("CreateCamera: camera name %q already exists", req.Name)
+		errorResponse(c, tick, http.StatusConflict, fmt.Sprintf("camera name %q already exists", req.Name))
+		return
+	}
+
 	// 1. Save camera config as JSON file
 	if err := os.MkdirAll(h.cameraDir, 0755); err != nil {
 		logger.GetLogger().Errorf("CreateCamera[%s]: failed to create camera directory: %v", req.Name, err)
@@ -255,9 +263,14 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 	}
 
 	// Build MVS config from request fields
+	// AI 매니저는 MediaMTX 프록시 URL을 사용해야 카메라 동시접속 제한을 피할 수 있음
+	mvsCameraURL := req.MediamtxRtspURL
+	if mvsCameraURL == "" {
+		mvsCameraURL = req.RtspURL
+	}
 	mvs := MvsCameraCreateRequest{
 		CameraID:      req.Name,
-		CameraURL:     req.RtspURL,
+		CameraURL:     mvsCameraURL,
 		ModelID:       req.ModelID,
 		DetectObjects: req.DetectObjects,
 	}
@@ -692,9 +705,14 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 	oldMvsFiles, _ := filepath.Glob(oldMvsPattern)
 
 	// 2. 새 MVS 데이터 생성
+	// AI 매니저는 MediaMTX 프록시 URL을 사용해야 카메라 동시접속 제한을 피할 수 있음
+	newMvsCameraURL := existing.MediamtxRtspURL
+	if newMvsCameraURL == "" {
+		newMvsCameraURL = existing.RtspURL
+	}
 	newMvs := MvsCameraCreateRequest{
 		CameraID:      id,
-		CameraURL:     existing.RtspURL,
+		CameraURL:     newMvsCameraURL,
 		ModelID:       existing.ModelID,
 		DetectObjects: existing.DetectObjects,
 	}
@@ -912,11 +930,21 @@ func (h *Handler) TestCameraConnection(c *gin.Context) {
 func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *CameraCreateRequest, caller string) error {
 	// Check if already running
 	h.processMu.Lock()
-	if _, running := h.processes[id]; running {
+	if proc, running := h.processes[id]; running {
+		proc.mu.Lock()
+		isActuallyRunning := proc.cmd != nil && proc.cmd.Process != nil
+		proc.mu.Unlock()
+		if isActuallyRunning {
+			h.processMu.Unlock()
+			return fmt.Errorf("camera '%s' is already running", id)
+		}
+		// backoff 중인 경우 (cmd == nil): 기존 loop 취소 후 재시작 허용
+		delete(h.processes, id)
 		h.processMu.Unlock()
-		return fmt.Errorf("camera '%s' is already running", id)
+		proc.cancel()
+	} else {
+		h.processMu.Unlock()
 	}
-	h.processMu.Unlock()
 
 	// Load camera config if not provided
 	if cam == nil {
@@ -940,9 +968,14 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 	// Recreate MVS file if it was deleted by DisableCamera.
 	mvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
 	if existing, _ := filepath.Glob(mvsPattern); len(existing) == 0 {
+		// AI 매니저는 MediaMTX 프록시 URL을 사용해야 카메라 동시접속 제한을 피할 수 있음
+		mvsCamURL := cam.MediamtxRtspURL
+		if mvsCamURL == "" {
+			mvsCamURL = cam.RtspURL
+		}
 		mvs := MvsCameraCreateRequest{
 			CameraID:      id,
-			CameraURL:     cam.RtspURL,
+			CameraURL:     mvsCamURL,
 			ModelID:       cam.ModelID,
 			DetectObjects: cam.DetectObjects,
 		}
@@ -1412,9 +1445,10 @@ func (h *Handler) GetCameraStatus(c *gin.Context) {
 	proc, running := h.processes[id]
 	h.processMu.Unlock()
 	if running {
-		status = "running"
 		proc.mu.Lock()
+		// cmd != nil 일 때만 실제 "running", nil이면 backoff 중이므로 "stopped"로 표시
 		if proc.cmd != nil && proc.cmd.Process != nil {
+			status = "running"
 			pid = proc.cmd.Process.Pid
 		}
 		proc.mu.Unlock()
@@ -1472,15 +1506,16 @@ func (h *Handler) GetCamerasHealth(c *gin.Context) {
 		}
 
 		if proc, ok := h.processes[name]; ok {
-			cam["status"] = "running"
 			proc.mu.Lock()
+			// cmd != nil 일 때만 실제 "running", nil이면 backoff 중이므로 "stopped"로 표시
 			if proc.cmd != nil && proc.cmd.Process != nil {
+				cam["status"] = "running"
 				cam["pid"] = proc.cmd.Process.Pid
+				runningCount++
 			}
 			proc.mu.Unlock()
 			cam["started_at"] = proc.startedAt.Format(time.RFC3339)
 			cam["uptime"] = time.Since(proc.startedAt).Truncate(time.Second).String()
-			runningCount++
 		}
 
 		cameras = append(cameras, cam)

@@ -49,7 +49,7 @@ func New(cfg config.ServerConfig, mediamtxCfg config.MediamtxConfig, logDir stri
 	s := &Server{
 		cfg:     cfg,
 		engine:  engine,
-		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffmpegBinary, mediamtxCfg.Host, mediamtxCfg.Port, mediamtxCfg.WebRTCPort, mediamtxCfg.RtspServerPort),
+		handler: NewHandler(machbase, watcher, ffRunner, cfg.DataDir, logDir, cfg.MvsDir, cfg.CameraDir, ffmpegBinary, mediamtxCfg.Host, mediamtxCfg.WebRTCHost, mediamtxCfg.Port, mediamtxCfg.WebRTCPort, mediamtxCfg.RtspServerPort),
 	}
 	s.routes(serveWeb)
 
