@@ -10,9 +10,10 @@ machbase:
   timeout_seconds: 30
 
 mediamtx:
-  binary: "../tools/mediamtx"  # MediaMTX 바이너리 경로 (비어있으면 외부 서버 사용)
+  binary: "../tools/mediamtx"          # MediaMTX 바이너리 경로 (비어있으면 외부 서버 사용)
+  config_file: "../tools/mediamtx.yml" # MediaMTX 설정 파일 경로 (비어있으면 바이너리 디렉토리에서 자동 탐색)
   host: 127.0.0.1
-  port: 9997                   # MediaMTX HTTP API 포트
+  port: 9997                           # MediaMTX HTTP API 포트
 
 ffmpeg:
   binary: "../tools/ffmpeg"

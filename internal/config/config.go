@@ -72,6 +72,7 @@ func resolveRelativePaths(cfg *AppConfig, base string) {
 	cfg.FFmpeg.Binary = resolve(cfg.FFmpeg.Binary)
 	cfg.FFmpeg.Defaults.ProbeBinary = resolve(cfg.FFmpeg.Defaults.ProbeBinary)
 	cfg.Mediamtx.Binary = resolve(cfg.Mediamtx.Binary)
+	cfg.Mediamtx.ConfigFile = resolve(cfg.Mediamtx.ConfigFile)
 	cfg.AI.Binary = resolve(cfg.AI.Binary)
 	cfg.AI.ConfigFile = resolve(cfg.AI.ConfigFile)
 	cfg.Log.Dir = resolve(cfg.Log.Dir)
