@@ -9,3 +9,9 @@ ff/*
 # ffmpeg/ffprobe 원본 바이너리 (압축 버전 .gz만 커밋)
 tools/*/ffmpeg
 tools/*/ffprobe
+
+# npm / frontend artifacts
+node_modules/
+frontend/node_modules/
+.npm-cache/
+npm-debug.log*
