@@ -264,6 +264,53 @@ func Package(target string) error {
 		}
 	}
 
+	// Copy backend launcher config and scripts
+	backendConfigSrc := ".backend.yml"
+	backendConfigDest := filepath.Join(packageDir, ".backend.yml")
+	if _, err := os.Stat(backendConfigSrc); err != nil {
+		return fmt.Errorf("required backend config not found: %s: %w", backendConfigSrc, err)
+	}
+	fmt.Printf("Copying %s to %s\n", backendConfigSrc, backendConfigDest)
+	if err := sh.Copy(backendConfigDest, backendConfigSrc); err != nil {
+		return fmt.Errorf("failed to copy backend config: %w", err)
+	}
+
+	backendScriptSrcDir := "scripts"
+	backendScriptDestDir := filepath.Join(packageDir, ".backend")
+	if err := os.MkdirAll(backendScriptDestDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backend script directory: %w", err)
+	}
+	for _, scriptName := range []string{"start.sh", "stop.sh"} {
+		src := filepath.Join(backendScriptSrcDir, scriptName)
+		dest := filepath.Join(backendScriptDestDir, scriptName)
+
+		if _, err := os.Stat(src); err != nil {
+			return fmt.Errorf("required backend script not found: %s: %w", src, err)
+		}
+
+		fmt.Printf("Copying %s to %s\n", src, dest)
+		if err := sh.Copy(dest, src); err != nil {
+			return fmt.Errorf("failed to copy backend script %s: %w", scriptName, err)
+		}
+		if targetOS != "windows" {
+			if err := os.Chmod(dest, 0755); err != nil {
+				return fmt.Errorf("failed to make backend script executable (%s): %w", scriptName, err)
+			}
+		}
+	}
+
+	// Copy frontend single-file bundle at repository root.
+	// External packager flattens {packageDir} -> dist/, so this becomes dist/index.html.
+	rootIndexSrc := "index.html"
+	rootIndexDest := filepath.Join(packageDir, "index.html")
+	if _, err := os.Stat(rootIndexSrc); err != nil {
+		return fmt.Errorf("required frontend bundle not found: %s: %w", rootIndexSrc, err)
+	}
+	fmt.Printf("Copying %s to %s\n", rootIndexSrc, rootIndexDest)
+	if err := sh.Copy(rootIndexDest, rootIndexSrc); err != nil {
+		return fmt.Errorf("failed to copy frontend bundle: %w", err)
+	}
+
 	// Copy web directory → bin/web/ (서버가 실행파일 기준 상대경로로 탐색)
 	if _, err := os.Stat("web"); err == nil {
 		webDestDir := filepath.Join(packageBinDir, "web")
