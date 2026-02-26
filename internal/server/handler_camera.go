@@ -163,11 +163,6 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		req.ArchiveDir = filepath.Join(h.dataDir, req.ArchiveDir)
 	}
 
-	// Set default ffmpeg command
-	if req.FFmpegCommand == "" {
-		req.FFmpegCommand = "ffmpeg"
-	}
-
 	req.RtspURL = strings.TrimSpace(req.RtspURL)
 	req.RtspPath = strings.TrimSpace(req.RtspPath)
 
@@ -859,13 +854,7 @@ func (h *Handler) DeleteCamera(c *gin.Context) {
 	}
 
 	// MVS 파일도 삭제
-	mvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
-	mvsFiles, _ := filepath.Glob(mvsPattern)
-	for _, mvsFile := range mvsFiles {
-		if err := os.Remove(mvsFile); err != nil {
-			logger.GetLogger().Warnf("DeleteCamera[%s]: failed to remove mvs file %q: %v", id, mvsFile, err)
-		}
-	}
+	h.removeMvsFiles(id)
 
 	// MediaMTX path 삭제
 	if rtspPathToRemove != "" {
@@ -1002,10 +991,12 @@ func (h *Handler) enableCameraInternal(ctx context.Context, id string, cam *Came
 	}
 
 	// Resolve ffmpeg binary
+	// 1순위: config.yaml ffmpeg.binary, 2순위: 카메라별 ffmpeg_command, 3순위: 시스템 PATH
 	ffmpegBin := "ffmpeg"
 	if cam.FFmpegCommand != "" {
 		ffmpegBin = cam.FFmpegCommand
-	} else if h.ffmpegBinary != "" {
+	}
+	if h.ffmpegBinary != "" {
 		ffmpegBin = h.ffmpegBinary
 	}
 
@@ -1323,13 +1314,7 @@ func (h *Handler) DisableCamera(c *gin.Context) {
 	}
 
 	// MVS 파일 삭제 (detection 프로그램이 비활성 카메라를 인식하지 않도록)
-	mvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
-	mvsFiles, _ := filepath.Glob(mvsPattern)
-	for _, mvsFile := range mvsFiles {
-		if err := os.Remove(mvsFile); err != nil {
-			logger.GetLogger().Warnf("DisableCamera[%s]: failed to remove mvs file %q: %v", id, mvsFile, err)
-		}
-	}
+	h.removeMvsFiles(id)
 
 	// MediaMTX path 삭제 + config 파일에 enabled: false 저장
 	if cfg := h.getCameraConfig(id); cfg != nil {

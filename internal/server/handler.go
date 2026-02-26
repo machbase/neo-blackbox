@@ -229,6 +229,37 @@ func (h *Handler) removeCameraConfigCache(cameraID string) {
 	h.configMu.Unlock()
 }
 
+// removeMvsFiles deletes all mvs files that belong to cameraID.
+// MVS 파일명 형식: {cameraID}_{modelID}_{timestamp}.mvs
+// glob 패턴은 prefix 매칭이라 다른 카메라 파일을 삭제할 수 있으므로
+// 파일명에서 뒤쪽 두 _필드를 제거한 값이 cameraID와 정확히 일치하는 경우만 삭제.
+func (h *Handler) removeMvsFiles(cameraID string) {
+	entries, err := os.ReadDir(h.mvsDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".mvs") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".mvs")
+		// {cameraID}_{modelID}_{timestamp} 에서 뒤 두 필드 제거
+		if idx := strings.LastIndex(base, "_"); idx >= 0 {
+			base = base[:idx]
+		} else {
+			continue
+		}
+		if idx := strings.LastIndex(base, "_"); idx >= 0 {
+			base = base[:idx]
+		} else {
+			continue
+		}
+		if base == cameraID {
+			_ = os.Remove(filepath.Join(h.mvsDir, e.Name()))
+		}
+	}
+}
+
 // Shutdown stops all running ffmpeg processes.
 func (h *Handler) Shutdown() {
 	h.processMu.Lock()
@@ -612,12 +643,12 @@ func (h *Handler) restoreMediaMTXPaths(ctx context.Context) {
 }
 
 // buildWebRTCURL generates the MediaMTX WebRTC URL for a given path name.
-// Format: http://{host}:{webrtcPort}/{pathName}
+// Format: http://{host}:{webrtcPort}/{pathName}/whep
 func (h *Handler) buildWebRTCURL(pathName string) string {
 	if pathName == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s:%d/%s", h.mediamtxWebRTCHost, h.mediamtxWebRTCPort, pathName)
+	return fmt.Sprintf("http://%s:%d/%s/whep", h.mediamtxWebRTCHost, h.mediamtxWebRTCPort, pathName)
 }
 
 // buildMediamtxRtspURL generates the MediaMTX RTSP proxy URL for a given path name.

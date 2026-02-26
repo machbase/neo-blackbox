@@ -69,11 +69,7 @@ func (h *Handler) GetCameras(c *gin.Context) {
 			logger.GetLogger().Warnf("GetCameras[%s]: table %q not found, removing orphaned config", cameraName, cfg.Table)
 			cameraPath := filepath.Join(h.cameraDir, cameraName+".json")
 			_ = os.Remove(cameraPath)
-			mvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", cameraName))
-			mvsFiles, _ := filepath.Glob(mvsPattern)
-			for _, f := range mvsFiles {
-				_ = os.Remove(f)
-			}
+			h.removeMvsFiles(cameraName)
 			h.removeCameraConfigCache(cameraName)
 			continue
 		}
