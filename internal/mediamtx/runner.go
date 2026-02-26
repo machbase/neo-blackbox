@@ -20,6 +20,7 @@ import (
 type Config struct {
 	Binary     string   // MediaMTX 실행 파일 경로
 	ConfigFile string   // 설정 파일 경로 (비어있으면 바이너리와 같은 디렉토리에서 자동 탐색)
+	Port       int      // MediaMTX HTTP API 포트 (기본: 9997)
 	Args       []string // 추가 실행 인자
 }
 
@@ -121,6 +122,16 @@ func (r *Runner) Start() error {
 	logger.GetLogger().Infof("[mediamtx] starting: %s", prettyCommand(r.cfg.Binary, execArgs))
 
 	cmd := exec.Command(r.cfg.Binary, execArgs...)
+
+	// API 활성화 환경변수 주입 (mediamtx.yml에 api: yes 설정이 없어도 동작하도록 보험)
+	apiPort := r.cfg.Port
+	if apiPort == 0 {
+		apiPort = 9997
+	}
+	cmd.Env = append(os.Environ(),
+		"MTX_API=yes",
+		fmt.Sprintf("MTX_APIADDRESS=:%d", apiPort),
+	)
 
 	// 로그 파일 설정
 	if err := os.MkdirAll(r.logDir, 0o755); err != nil {
@@ -225,13 +236,11 @@ func (r *Runner) Status() ServerStatus {
 
 // buildExecArgs는 실행 인자를 생성한다.
 // ConfigFile이 비어있으면 바이너리와 같은 디렉토리에서 mediamtx.yml을 자동 탐색한다.
-// 상대 경로는 절대 경로로 변환하여 MediaMTX가 올바른 파일에 쓰도록 한다.
 func (r *Runner) buildExecArgs() []string {
 	var args []string
 
 	configFile := r.cfg.ConfigFile
 	if configFile == "" {
-		// 상대 경로를 절대 경로로 변환 후 config 파일 탐색
 		binaryAbs, err := filepath.Abs(r.cfg.Binary)
 		if err != nil {
 			binaryAbs = r.cfg.Binary
@@ -240,8 +249,6 @@ func (r *Runner) buildExecArgs() []string {
 		if _, err := os.Stat(candidate); err == nil {
 			configFile = candidate
 			logger.GetLogger().Infof("[mediamtx] auto-detected config: %s", configFile)
-		} else {
-			logger.GetLogger().Warnf("[mediamtx] config file not found at %s: %v", candidate, err)
 		}
 	}
 	if configFile != "" {

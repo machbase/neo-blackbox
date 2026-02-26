@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"neo-blackbox/internal/db"
@@ -158,9 +160,12 @@ func (h *Handler) CreateCamera(c *gin.Context) {
 		req.FFmpegCommand = "ffmpeg"
 	}
 
-	// rtsp_path 기본값: rtsp_url이 있고 rtsp_path가 비어있으면 카메라 이름으로 자동 설정
+	req.RtspURL = strings.TrimSpace(req.RtspURL)
+	req.RtspPath = strings.TrimSpace(req.RtspPath)
+
+	// rtsp_path 기본값: rtsp_url이 있고 rtsp_path가 비어있으면 랜덤 hex ID로 자동 설정
 	if req.RtspURL != "" && req.RtspPath == "" {
-		req.RtspPath = req.Name
+		req.RtspPath = generateRtspPath()
 	}
 	// rtsp_path 중복 검사
 	if req.RtspPath != "" && h.rtspPathInUse("", req.RtspPath) {
@@ -613,6 +618,9 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
 		return
 	}
+
+	req.RtspURL = strings.TrimSpace(req.RtspURL)
+	req.RtspPath = strings.TrimSpace(req.RtspPath)
 
 	// rtsp_path 중복 검사: 변경되는 경우에만, 다른 카메라가 동일한 path를 사용 중이면 409
 	if req.RtspPath != "" && req.RtspPath != existing.RtspPath && h.rtspPathInUse(id, req.RtspPath) {
@@ -1616,4 +1624,15 @@ func (h *Handler) HeartbeatMediaMTX(c *gin.Context) {
 	successResponse(c, tick, map[string]any{
 		"healthy": true,
 	})
+}
+
+// generateRtspPath는 MediaMTX path로 사용할 URL-safe 랜덤 ID를 생성한다.
+// 카메라 이름에 특수문자가 포함될 수 있으므로 이름 대신 랜덤 ID를 사용한다.
+func generateRtspPath() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// fallback: timestamp 기반
+		return fmt.Sprintf("cam%d", time.Now().UnixNano())
+	}
+	return "cam-" + hex.EncodeToString(b)
 }

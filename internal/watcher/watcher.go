@@ -601,7 +601,7 @@ func (w *Watcher) proecessChunk(ctx context.Context, rule WatcherRule, name stri
 		return fmt.Errorf("InsertChunk: %v", err)
 	}
 
-	logger.GetLogger().Infof("[CHUNK] %s -> %s absStart=%.6f len=%.6f utcNs=%d relPath=%s", name, finalPath, absStart, timing.Length, utcTimeNs, relPath)
+	logger.GetLogger().Infof("[CHUNK] [%s] %s -> %s absStart=%.6f len=%.6f utcNs=%d relPath=%s", rule.CameraID, name, finalPath, absStart, timing.Length, utcTimeNs, relPath)
 
 	return nil
 }

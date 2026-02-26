@@ -77,7 +77,11 @@ func run(c context.Context, path string, serveWeb bool) error {
 		return fmt.Errorf("create server: %w", err)
 	}
 
-	mediamtxRunner := mediamtx.New(mediamtx.Config{Binary: cfg.Mediamtx.Binary, ConfigFile: cfg.Mediamtx.ConfigFile}, logDir)
+	mediamtxRunner := mediamtx.New(mediamtx.Config{
+		Binary:     cfg.Mediamtx.Binary,
+		ConfigFile: cfg.Mediamtx.ConfigFile,
+		Port:       cfg.Mediamtx.Port,
+	}, logDir)
 	aiMgr := ai.New(cfg.AI, logDir)
 
 	g, gctx := errgroup.WithContext(ctx)
