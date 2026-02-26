@@ -258,7 +258,7 @@ func (h *Handler) GetChunkInfo(c *gin.Context) {
 	}
 
 	if record == nil {
-		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("Chunk not found for camera '%s' at time '%s'", cameraID, req.Time))
+		successResponse(c, tick, GetChunkInfoResponse{})
 		return
 	}
 
