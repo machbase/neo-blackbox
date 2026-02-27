@@ -54,12 +54,6 @@ func fixedDefaults() config.AppConfig {
 		FFmpeg: config.FFmpegConfig{
 			Defaults: config.FFmpegDefaults{
 				ProbeBinary: "../tools/ffprobe",
-				ProbeArgs: []config.ArgKV{
-					{Flag: "v", Value: "error"},
-					{Flag: "select_streams", Value: "v:0"},
-					{Flag: "show_entries", Value: "packet=pts_time,duration_time"},
-					{Flag: "of", Value: "csv=p=0"},
-				},
 			},
 		},
 		AI: config.AIConfig{
