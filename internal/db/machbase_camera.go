@@ -135,7 +135,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 
 // CameraLogRow represents a detection log entry for {camera}_log table.
 type CameraLogRow struct {
-	Name     string  // camera_id.ident (ex: camera1.person)
+	Name     string  // cameraID.ident (ex: camera1.person)
 	Time     int64   // nanoseconds
 	Value    float64 // detection count
 	ModelID  int64

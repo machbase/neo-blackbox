@@ -438,7 +438,7 @@ func (h *Handler) UploadAIResult(c *gin.Context) {
 		logs := make([]db.CameraLogRow, 0, len(normalizedDetections))
 		for ident, value := range normalizedDetections {
 			logs = append(logs, db.CameraLogRow{
-				Name:     config.Table + "." + ident,
+				Name:     req.CameraID + "." + ident,
 				Time:     tsNano,
 				Value:    value,
 				ModelID:  req.ModelID,
