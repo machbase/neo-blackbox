@@ -16,7 +16,7 @@ func (m *Machbase) CreateTable(ctx context.Context, tableName string) error {
     time DATETIME BASETIME,
     value DOUBLE SUMMARIZED,
     chunk_path VARCHAR(128)
-) WITH ROLLUP`, tableName)
+) WITH ROLLUP TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, tableName)
 
 	if _, err := m.Query(ctx, sql); err != nil {
 		return fmt.Errorf("create table %s: %w", tableName, err)
@@ -37,7 +37,7 @@ func (m *Machbase) CreateCameraEventTable(ctx context.Context, tableName string)
 ) METADATA (
     camera_id VARCHAR(64),
     rule_id VARCHAR(64)
-)`, tableName)
+) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, tableName)
 
 	if _, err := m.Query(ctx, sqlEvent); err != nil {
 		return fmt.Errorf("create table %s_event: %w", tableName, err)
@@ -74,7 +74,7 @@ func (m *Machbase) CreateCameraLogTable(ctx context.Context, tableName string) e
 ) METADATA (
     camera_id VARCHAR(64),
     ident VARCHAR(64)
-)`, tableName)
+) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, tableName)
 
 	if _, err := m.Query(ctx, sqlLog); err != nil {
 		return fmt.Errorf("create table %s_log: %w", tableName, err)
@@ -92,7 +92,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
     time DATETIME BASETIME,
     value DOUBLE SUMMARIZED,
     chunk_path VARCHAR(128)
-) WITH ROLLUP`, name)
+) WITH ROLLUP TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, name)
 
 	if _, err := m.Query(ctx, sqlMain); err != nil {
 		return fmt.Errorf("create table %s: %w", name, err)
@@ -108,7 +108,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 ) METADATA (
     camera_id VARCHAR(64),
     rule_id VARCHAR(64)
-)`, name)
+) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, name)
 
 	if _, err := m.Query(ctx, sqlEvent); err != nil {
 		return fmt.Errorf("create table %s_event: %w", name, err)
@@ -123,7 +123,7 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
 ) METADATA (
     camera_id VARCHAR(64),
     ident VARCHAR(64)
-)`, name)
+) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, name)
 	// model_id VARCHAR(64)
 
 	if _, err := m.Query(ctx, sqlLog); err != nil {
