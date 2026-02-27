@@ -1,3 +1,5 @@
+import type { ApiConfigData } from './configApi';
+
 export type SettingsTab = 'general' | 'ffmpeg' | 'log';
 
 export interface ServerPaths {
@@ -55,3 +57,11 @@ export interface LogSettings {
   maxAgeDays: number;
   compressOldLogs: boolean;
 }
+
+export interface SettingsDraft {
+  general: GeneralSettings;
+  ffmpeg: FFmpegDefaults;
+  log: LogSettings;
+}
+
+export type ConfigShadow = ApiConfigData;
