@@ -10,3 +10,7 @@ env:
 
 stdout_log: debug
 stderr_log: warn
+
+http_proxy:
+  port: 8000
+  strip_prefix: /web/apps/neo-blackbox/
