@@ -583,19 +583,13 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 
 // GetCameraEventCount handles GET /api/camera_events/count.
 // 마지막 이벤트 조회 시간부터 현재까지의 이벤트 개수를 반환.
+// 마지막 조회 시간이 없는 경우(최초 실행 등) 전체 이벤트 개수를 반환.
 func (h *Handler) GetCameraEventCount(c *gin.Context) {
 	tick := time.Now()
 
 	h.lastEventQueryTimeMu.Lock()
 	startNs := h.lastEventQueryTime
 	h.lastEventQueryTimeMu.Unlock()
-
-	if startNs == 0 {
-		successResponse(c, tick, map[string]any{
-			"count": 0,
-		})
-		return
-	}
 
 	endNs := time.Now().UnixNano()
 
