@@ -401,6 +401,7 @@
                     <div class="nav-item" data-section="camera-status">카메라 상태</div>
                     <div class="nav-item" data-section="cameras-health">전체 헬스체크</div>
                     <div class="nav-item" data-section="camera-test">연결 테스트</div>
+                    <div class="nav-item" data-section="cameras-ping">IP Ping</div>
                 </div>
 
                 <div class="nav-section">
@@ -668,6 +669,22 @@
                     </div>
                     <button class="btn btn-primary" onclick="testCameraConnection()">연결 테스트</button>
                     <div class="response-area" id="camera-test-response"></div>
+                </div>
+
+                <!-- Camera IP Ping Section -->
+                <div class="api-section" id="cameras-ping">
+                    <h2><span class="method-badge method-post">POST</span> IP Ping</h2>
+                    <p class="help-text">카메라 IP 주소로 ping을 전송합니다. 최대 5초 대기 후 결과를 반환합니다.</p>
+                    <div class="form-group">
+                        <label>IP Address *</label>
+                        <input type="text" id="ping-ip" placeholder="192.168.1.100" />
+                    </div>
+                    <div class="form-group">
+                        <label>Timeout (초, 기본 5 / 최대 5)</label>
+                        <input type="number" id="ping-timeout" placeholder="5" min="1" max="5" />
+                    </div>
+                    <button class="btn btn-primary" onclick="pingCamera()">Ping 전송</button>
+                    <div class="response-area" id="cameras-ping-response"></div>
                 </div>
 
                 <!-- MediaMTX Heartbeat Section -->
@@ -1446,6 +1463,39 @@ ${JSON.stringify(data, null, 2)}
                 container.innerHTML = `
                     <h3>응답 결과</h3>
                     <div class="response-box ${ok ? 'success' : 'error'}">
+${JSON.stringify(data, null, 2)}
+                    </div>
+                `;
+            } catch (error) {
+                container.innerHTML = `
+                    <h3>응답 결과</h3>
+                    <div class="response-box error">
+${JSON.stringify({ error: error.message }, null, 2)}
+                    </div>
+                `;
+            }
+        }
+
+        async function pingCamera() {
+            const ip = document.getElementById('ping-ip').value.trim();
+            if (!ip) {
+                alert('IP 주소를 입력해주세요.');
+                return;
+            }
+            const timeout = parseInt(document.getElementById('ping-timeout').value) || 5;
+            const container = document.getElementById('cameras-ping-response');
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Ping 전송 중... (최대 ${Math.min(timeout, 5)}초)</p>
+                </div>
+            `;
+            try {
+                const data = await apiRequest(`${API_BASE}/cameras/ping`, 'POST', { ip, timeout });
+                const alive = data.data && data.data.alive;
+                container.innerHTML = `
+                    <h3>응답 결과</h3>
+                    <div class="response-box ${alive ? 'success' : 'error'}">
 ${JSON.stringify(data, null, 2)}
                     </div>
                 `;
