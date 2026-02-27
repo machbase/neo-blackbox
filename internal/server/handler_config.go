@@ -23,21 +23,18 @@ type AppConfigDTO struct {
 }
 
 type ServerConfigAPI struct {
-	Addr      string `json:"addr"`       // 읽기 전용 (POST 시 무시)
+	Addr      string `json:"addr"` // 읽기 전용 (POST 시 무시)
 	CameraDir string `json:"camera_dir"`
 	MvsDir    string `json:"mvs_dir"`
 	DataDir   string `json:"data_dir"`
 }
 
 type MachbaseConfigAPI struct {
-	Disabled       bool   `json:"disabled"`
 	Scheme         string `json:"scheme"`
 	Host           string `json:"host"`
 	Port           int    `json:"port"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
-	APIToken       string `json:"api_token"`
-	User           string `json:"user"`
-	Password       string `json:"password"`
+	Token          string `json:"token"`
 }
 
 type FfmpegConfigAPI struct {
@@ -46,8 +43,8 @@ type FfmpegConfigAPI struct {
 }
 
 type FfmpegDefaultsAPI struct {
-	ProbeBinary string          `json:"probe_binary"`
-	ProbeArgs   []config.ArgKV  `json:"probe_args"`
+	ProbeBinary string         `json:"probe_binary"`
+	ProbeArgs   []config.ArgKV `json:"probe_args"`
 }
 
 type MediamtxConfigAPI struct {
@@ -61,10 +58,10 @@ type MediamtxConfigAPI struct {
 }
 
 type LogConfigAPI struct {
-	Dir    string          `json:"dir"`
-	Level  string          `json:"level"`
-	Format string          `json:"format"`
-	Output string          `json:"output"`
+	Dir    string           `json:"dir"`
+	Level  string           `json:"level"`
+	Format string           `json:"format"`
+	Output string           `json:"output"`
 	File   LogFileConfigAPI `json:"file"`
 }
 
@@ -152,14 +149,11 @@ func cfgToDTO(cfg *config.AppConfig) AppConfigDTO {
 			DataDir:   cfg.Server.DataDir,
 		},
 		Machbase: MachbaseConfigAPI{
-			Disabled:       cfg.Machbase.Disabled,
 			Scheme:         cfg.Machbase.Scheme,
 			Host:           cfg.Machbase.Host,
 			Port:           cfg.Machbase.Port,
 			TimeoutSeconds: cfg.Machbase.TimeoutSeconds,
-			APIToken:       cfg.Machbase.APIToken,
-			User:           cfg.Machbase.User,
-			Password:       cfg.Machbase.Password,
+			Token:          cfg.Machbase.APIToken,
 		},
 		Ffmpeg: FfmpegConfigAPI{
 			Binary: cfg.FFmpeg.Binary,
@@ -210,14 +204,11 @@ func dtoToCfg(req *AppConfigDTO) config.AppConfig {
 			DataDir:   req.Server.DataDir,
 		},
 		Machbase: config.MachbaseConfig{
-			Disabled:       req.Machbase.Disabled,
 			Scheme:         req.Machbase.Scheme,
 			Host:           req.Machbase.Host,
 			Port:           req.Machbase.Port,
 			TimeoutSeconds: req.Machbase.TimeoutSeconds,
-			APIToken:       req.Machbase.APIToken,
-			User:           req.Machbase.User,
-			Password:       req.Machbase.Password,
+			APIToken:       req.Machbase.Token,
 		},
 		FFmpeg: config.FFmpegConfig{
 			Binary: req.Ffmpeg.Binary,
