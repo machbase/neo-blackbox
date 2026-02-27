@@ -8,13 +8,14 @@ type ReadonlyFieldProps = {
   id: string;
   label: string;
   value: string | number;
+  type?: 'text' | 'password';
 };
 
-function ReadonlyField({ id, label, value }: ReadonlyFieldProps) {
+function ReadonlyField({ id, label, value, type = 'text' }: ReadonlyFieldProps) {
   return (
     <div className="field-row">
       <label htmlFor={id}>{label}</label>
-      <input id={id} name={id} value={value} readOnly />
+      <input id={id} name={id} type={type} value={value} readOnly />
     </div>
   );
 }
@@ -36,6 +37,28 @@ export function GeneralTab({ settings }: GeneralTabProps) {
           <ReadonlyField id="machbase-host" label="Host" value={settings.machbase.host} />
           <ReadonlyField id="machbase-port" label="Port" value={settings.machbase.port} />
           <ReadonlyField id="machbase-timeout" label="Timeout Seconds" value={settings.machbase.timeoutSeconds} />
+          <label className="toggle-row" htmlFor="machbase-use-token">
+            <div>
+              <p className="toggle-title">토큰 사용 여부</p>
+              <p className="field-hint">Enable token-based authentication for Machbase requests.</p>
+            </div>
+            <span className="toggle-control">
+              <input
+                id="machbase-use-token"
+                name="machbase-use-token"
+                type="checkbox"
+                checked={settings.machbase.useToken}
+                readOnly
+              />
+              <span className="toggle-slider" />
+            </span>
+          </label>
+          <ReadonlyField
+            id="machbase-api-token"
+            label="Token"
+            type="password"
+            value={settings.machbase.apiToken}
+          />
         </article>
 
         <article className="panel-card">

@@ -23,7 +23,7 @@ const TAB_META: Record<SettingsTab, TabMeta> = {
   },
   ffmpeg: {
     heading: 'FFmpeg Default Settings',
-    subheading: 'Configure advanced binary paths and probe arguments for optimized media processing.',
+    subheading: 'Configure default probe arguments for optimized media processing.',
     breadcrumb: 'FFmpeg Default Settings',
     topActionLabel: 'Save Changes',
   },
