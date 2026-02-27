@@ -159,13 +159,22 @@ func (r *FFmpegRunner) ProbeRTSP(ctx context.Context, rtspURL string) error {
 }
 
 func (r *FFmpegRunner) buildProbeArgs(initFile string, chunkFile string) []string {
-	return []string{
-		"-v", "error",
-		"-select_streams", "v:0",
-		"-show_entries", "packet=pts_time,duration_time",
-		"-of", "csv=p=0",
-		fmt.Sprintf("concat:%s|%s", initFile, chunkFile),
+	var args []string
+	if len(r.cfg.Defaults.ProbeArgs) > 0 {
+		for _, kv := range r.cfg.Defaults.ProbeArgs {
+			args = append(args, "-"+kv.Flag, kv.Value)
+		}
+	} else {
+		// fallback defaults
+		args = []string{
+			"-v", "error",
+			"-select_streams", "v:0",
+			"-show_entries", "packet=pts_time,duration_time",
+			"-of", "csv=p=0",
+		}
 	}
+	args = append(args, fmt.Sprintf("concat:%s|%s", initFile, chunkFile))
+	return args
 }
 
 func prettyCommand(b string, args []string) string {

@@ -11,5 +11,6 @@ type FFmpegConfig struct {
 }
 
 type FFmpegDefaults struct {
-	ProbeBinary string `yaml:"probe_binary"`
+	ProbeBinary string  `yaml:"probe_binary"`
+	ProbeArgs   []ArgKV `yaml:"probe_args"`
 }
