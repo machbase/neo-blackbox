@@ -21,6 +21,15 @@ ffmpeg:
 
   defaults:
     probe_binary: "../tools/ffprobe"
+    probe_args:
+      - flag: v
+        value: "error"
+      - flag: select_streams
+        value: "v:0"
+      - flag: show_entries
+        value: "packet=pts_time,duration_time"
+      - flag: of
+        value: "csv=p=0"
 
 ai:
   binary: "../ai/blackbox-ai-manager"  # AI manager 바이너리 경로 (비어있으면 비활성화)

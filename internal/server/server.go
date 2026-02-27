@@ -127,6 +127,10 @@ func (s *Server) routes(serveWeb bool) {
 	api.DELETE("/event_rule/:camera_id/:rule_id", s.handler.DeleteEventRules)
 
 	// ==================================================================
+	// Network utilities
+	api.POST("/cameras/ping", s.handler.PingIP)
+
+	// ==================================================================
 	// AI
 	api.POST("/ai/result", s.handler.UploadAIResult)
 
