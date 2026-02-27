@@ -86,19 +86,12 @@ func validate(cfg *AppConfig) error {
 	return nil
 }
 
-// LoadRaw loads config from the given path without resolving relative paths or applying defaults.
-// Used for reading the raw file before overwriting (preserves original path strings).
+// LoadRaw reads config.yaml without applying defaults or resolving relative paths.
 func LoadRaw(path string) (*AppConfig, error) {
-	absPath, err := filepath.Abs(path)
+	bdata, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	bdata, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, err
-	}
-
 	cfg := &AppConfig{}
 	if err := yaml.Unmarshal(bdata, cfg); err != nil {
 		return nil, err
@@ -106,7 +99,7 @@ func LoadRaw(path string) (*AppConfig, error) {
 	return cfg, nil
 }
 
-// Save marshals cfg to YAML and writes it to the given path.
+// Save writes the config to the specified path as YAML.
 func Save(path string, cfg *AppConfig) error {
 	bdata, err := yaml.Marshal(cfg)
 	if err != nil {

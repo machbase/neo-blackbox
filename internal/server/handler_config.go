@@ -11,16 +11,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AppConfigRequest는 POST/GET /api/config 에서 사용하는 설정 구조체.
-// log, ai, mediamtx, ffmpeg.defaults 는 고정값으로 관리되며 API에서 제외.
-type AppConfigRequest struct {
+// AppConfigDTO는 GET/POST /api/config 에서 사용하는 설정 구조체.
+// server.addr 과 ai 는 읽기 전용 (POST 시 무시됨).
+type AppConfigDTO struct {
 	Server   ServerConfigAPI   `json:"server"`
 	Machbase MachbaseConfigAPI `json:"machbase"`
 	Ffmpeg   FfmpegConfigAPI   `json:"ffmpeg"`
+	Mediamtx MediamtxConfigAPI `json:"mediamtx"`
+	Log      LogConfigAPI      `json:"log"`
+	AI       AIConfigAPI       `json:"ai"` // 읽기 전용 (POST 시 무시)
 }
 
 type ServerConfigAPI struct {
-	Addr      string `json:"addr"`
+	Addr      string `json:"addr"`       // 읽기 전용 (POST 시 무시)
 	CameraDir string `json:"camera_dir"`
 	MvsDir    string `json:"mvs_dir"`
 	DataDir   string `json:"data_dir"`
@@ -38,62 +41,110 @@ type MachbaseConfigAPI struct {
 }
 
 type FfmpegConfigAPI struct {
-	Binary string `json:"binary"`
+	Binary   string            `json:"binary"`
+	Defaults FfmpegDefaultsAPI `json:"defaults"`
 }
 
-// fixedDefaults returns the hardcoded fixed sections of the config
-// (log, ai, mediamtx, ffmpeg.defaults). These are always written as-is.
-func fixedDefaults() config.AppConfig {
-	return config.AppConfig{
-		Mediamtx: config.MediamtxConfig{
-			Binary:     "../tools/mediamtx",
-			ConfigFile: "../tools/mediamtx.yml",
-			Host:       "127.0.0.1",
-			Port:       9997,
-		},
-		FFmpeg: config.FFmpegConfig{
-			Defaults: config.FFmpegDefaults{
-				ProbeBinary: "../tools/ffprobe",
-			},
-		},
-		AI: config.AIConfig{
-			Binary:     "../ai/blackbox-ai-manager",
-			ConfigFile: "../ai/config.json",
-		},
-		Log: config.LogConfig{
-			Dir:    "../logs",
-			Level:  "info",
-			Format: "json",
-			Output: "both",
-			File: config.LogFileConfig{
-				Filename:   "blackbox.log",
-				MaxSize:    100,
-				MaxBackups: 10,
-				MaxAge:     30,
-				Compress:   true,
-			},
-		},
-	}
+type FfmpegDefaultsAPI struct {
+	ProbeBinary string          `json:"probe_binary"`
+	ProbeArgs   []config.ArgKV  `json:"probe_args"`
+}
+
+type MediamtxConfigAPI struct {
+	Binary         string `json:"binary"`
+	ConfigFile     string `json:"config_file"`
+	Host           string `json:"host"`
+	WebRTCHost     string `json:"webrtc_host"`
+	Port           int    `json:"port"`
+	WebRTCPort     int    `json:"webrtc_port"`
+	RtspServerPort int    `json:"rtsp_server_port"`
+}
+
+type LogConfigAPI struct {
+	Dir    string          `json:"dir"`
+	Level  string          `json:"level"`
+	Format string          `json:"format"`
+	Output string          `json:"output"`
+	File   LogFileConfigAPI `json:"file"`
+}
+
+type LogFileConfigAPI struct {
+	Filename   string `json:"filename"`
+	MaxSize    int    `json:"max_size"`
+	MaxBackups int    `json:"max_backups"`
+	MaxAge     int    `json:"max_age"`
+	Compress   bool   `json:"compress"`
+}
+
+type AIConfigAPI struct {
+	Binary     string `json:"binary"`
+	ConfigFile string `json:"config_file"`
 }
 
 // GetAppConfig godoc
 // GET /api/config
-// config.yaml 에서 server, machbase, ffmpeg.binary 를 반환한다.
+// config.yaml 의 모든 필드를 반환한다.
 func (h *Handler) GetAppConfig(c *gin.Context) {
 	tick := time.Now()
 
 	cfg, err := config.LoadRaw(h.configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// 파일 없으면 빈 구조체 반환
-			successResponse(c, tick, AppConfigRequest{})
+			successResponse(c, tick, AppConfigDTO{})
 			return
 		}
 		errorResponse(c, tick, http.StatusInternalServerError, "failed to read config: "+err.Error())
 		return
 	}
 
-	successResponse(c, tick, AppConfigRequest{
+	successResponse(c, tick, cfgToDTO(cfg))
+}
+
+// PostAppConfig godoc
+// POST /api/config
+// config.yaml 을 갱신한다. server.addr 과 ai 는 수정 불가 (기존 값 유지).
+func (h *Handler) PostAppConfig(c *gin.Context) {
+	tick := time.Now()
+
+	var req AppConfigDTO
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errorResponse(c, tick, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+
+	// 기존 config 에서 읽기 전용 필드(server.addr, ai) 보존
+	var preservedAddr string
+	var preservedAI config.AIConfig
+
+	existingCfg, err := config.LoadRaw(h.configPath)
+	if err != nil && !os.IsNotExist(err) {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to read config: "+err.Error())
+		return
+	}
+	if existingCfg != nil {
+		preservedAddr = existingCfg.Server.Addr
+		preservedAI = existingCfg.AI
+	}
+
+	cfg := dtoToCfg(&req)
+	cfg.Server.Addr = preservedAddr
+	cfg.AI = preservedAI
+
+	if err := os.MkdirAll(filepath.Dir(h.configPath), 0755); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to create config dir: "+err.Error())
+		return
+	}
+
+	if err := config.Save(h.configPath, &cfg); err != nil {
+		errorResponse(c, tick, http.StatusInternalServerError, "failed to save config: "+err.Error())
+		return
+	}
+
+	successResponse(c, tick, nil)
+}
+
+func cfgToDTO(cfg *config.AppConfig) AppConfigDTO {
+	return AppConfigDTO{
 		Server: ServerConfigAPI{
 			Addr:      cfg.Server.Addr,
 			CameraDir: cfg.Server.CameraDir,
@@ -112,56 +163,91 @@ func (h *Handler) GetAppConfig(c *gin.Context) {
 		},
 		Ffmpeg: FfmpegConfigAPI{
 			Binary: cfg.FFmpeg.Binary,
+			Defaults: FfmpegDefaultsAPI{
+				ProbeBinary: cfg.FFmpeg.Defaults.ProbeBinary,
+				ProbeArgs:   cfg.FFmpeg.Defaults.ProbeArgs,
+			},
 		},
-	})
+		Mediamtx: MediamtxConfigAPI{
+			Binary:         cfg.Mediamtx.Binary,
+			ConfigFile:     cfg.Mediamtx.ConfigFile,
+			Host:           cfg.Mediamtx.Host,
+			WebRTCHost:     cfg.Mediamtx.WebRTCHost,
+			Port:           cfg.Mediamtx.Port,
+			WebRTCPort:     cfg.Mediamtx.WebRTCPort,
+			RtspServerPort: cfg.Mediamtx.RtspServerPort,
+		},
+		Log: LogConfigAPI{
+			Dir:    cfg.Log.Dir,
+			Level:  cfg.Log.Level,
+			Format: cfg.Log.Format,
+			Output: cfg.Log.Output,
+			File: LogFileConfigAPI{
+				Filename:   cfg.Log.File.Filename,
+				MaxSize:    cfg.Log.File.MaxSize,
+				MaxBackups: cfg.Log.File.MaxBackups,
+				MaxAge:     cfg.Log.File.MaxAge,
+				Compress:   cfg.Log.File.Compress,
+			},
+		},
+		AI: AIConfigAPI{
+			Binary:     cfg.AI.Binary,
+			ConfigFile: cfg.AI.ConfigFile,
+		},
+	}
 }
 
-// PostAppConfig godoc
-// POST /api/config
-// server, machbase, ffmpeg.binary 를 받아 config.yaml 을 생성/갱신한다.
-// log, ai, mediamtx, ffmpeg.defaults 는 고정값으로 자동 기입된다.
-func (h *Handler) PostAppConfig(c *gin.Context) {
-	tick := time.Now()
-
-	var req AppConfigRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		errorResponse(c, tick, http.StatusBadRequest, "invalid request: "+err.Error())
-		return
+func dtoToCfg(req *AppConfigDTO) config.AppConfig {
+	var probeArgs []config.ArgKV
+	if len(req.Ffmpeg.Defaults.ProbeArgs) > 0 {
+		probeArgs = req.Ffmpeg.Defaults.ProbeArgs
 	}
-
-	// 고정 섹션(log, ai, mediamtx, ffmpeg.defaults)으로 시작
-	cfg := fixedDefaults()
-
-	// 사용자 설정 섹션 적용
-	cfg.Server = config.ServerConfig{
-		Addr:      req.Server.Addr,
-		CameraDir: req.Server.CameraDir,
-		MvsDir:    req.Server.MvsDir,
-		DataDir:   req.Server.DataDir,
+	return config.AppConfig{
+		Server: config.ServerConfig{
+			// Addr 는 호출자에서 보존값으로 덮어씀
+			CameraDir: req.Server.CameraDir,
+			MvsDir:    req.Server.MvsDir,
+			DataDir:   req.Server.DataDir,
+		},
+		Machbase: config.MachbaseConfig{
+			Disabled:       req.Machbase.Disabled,
+			Scheme:         req.Machbase.Scheme,
+			Host:           req.Machbase.Host,
+			Port:           req.Machbase.Port,
+			TimeoutSeconds: req.Machbase.TimeoutSeconds,
+			APIToken:       req.Machbase.APIToken,
+			User:           req.Machbase.User,
+			Password:       req.Machbase.Password,
+		},
+		FFmpeg: config.FFmpegConfig{
+			Binary: req.Ffmpeg.Binary,
+			Defaults: config.FFmpegDefaults{
+				ProbeBinary: req.Ffmpeg.Defaults.ProbeBinary,
+				ProbeArgs:   probeArgs,
+			},
+		},
+		Mediamtx: config.MediamtxConfig{
+			Binary:         req.Mediamtx.Binary,
+			ConfigFile:     req.Mediamtx.ConfigFile,
+			Host:           req.Mediamtx.Host,
+			WebRTCHost:     req.Mediamtx.WebRTCHost,
+			Port:           req.Mediamtx.Port,
+			WebRTCPort:     req.Mediamtx.WebRTCPort,
+			RtspServerPort: req.Mediamtx.RtspServerPort,
+		},
+		Log: config.LogConfig{
+			Dir:    req.Log.Dir,
+			Level:  req.Log.Level,
+			Format: req.Log.Format,
+			Output: req.Log.Output,
+			File: config.LogFileConfig{
+				Filename:   req.Log.File.Filename,
+				MaxSize:    req.Log.File.MaxSize,
+				MaxBackups: req.Log.File.MaxBackups,
+				MaxAge:     req.Log.File.MaxAge,
+				Compress:   req.Log.File.Compress,
+			},
+		},
+		// AI 는 호출자에서 보존값으로 덮어씀
 	}
-	cfg.Machbase = config.MachbaseConfig{
-		Disabled:       req.Machbase.Disabled,
-		Scheme:         req.Machbase.Scheme,
-		Host:           req.Machbase.Host,
-		Port:           req.Machbase.Port,
-		TimeoutSeconds: req.Machbase.TimeoutSeconds,
-		APIToken:       req.Machbase.APIToken,
-		User:           req.Machbase.User,
-		Password:       req.Machbase.Password,
-	}
-	// ffmpeg.defaults 는 fixedDefaults 에서 이미 설정됨
-	cfg.FFmpeg.Binary = req.Ffmpeg.Binary
-
-	// config 디렉토리 생성 (없으면)
-	if err := os.MkdirAll(filepath.Dir(h.configPath), 0755); err != nil {
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to create config dir: "+err.Error())
-		return
-	}
-
-	if err := config.Save(h.configPath, &cfg); err != nil {
-		errorResponse(c, tick, http.StatusInternalServerError, "failed to save config: "+err.Error())
-		return
-	}
-
-	successResponse(c, tick, nil)
 }
