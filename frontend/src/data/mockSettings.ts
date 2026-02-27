@@ -11,6 +11,8 @@ export const generalSettings: GeneralSettings = {
     host: '127.0.0.1',
     port: 5654,
     timeoutSeconds: 15,
+    useToken: true,
+    apiToken: 'mb-token-demo-value',
   },
   mediaMtx: {
     host: '127.0.0.1',
@@ -24,7 +26,6 @@ export const generalSettings: GeneralSettings = {
 };
 
 export const ffmpegDefaults: FFmpegDefaults = {
-  probeBinary: '/usr/bin/ffprobe',
   probeArgs: [
     { id: 'arg-1', flag: '-v', value: 'error' },
     { id: 'arg-2', flag: '-select_streams', value: 'v:0' },

@@ -8,18 +8,6 @@ export function FFmpegTab({ settings }: FFmpegTabProps) {
   return (
     <section id="panel-ffmpeg" role="tabpanel" aria-labelledby="tab-ffmpeg" className="tab-panel">
       <article className="panel-card panel-card-wide">
-        <h3>Binary Configuration</h3>
-        <div className="field-row">
-          <label htmlFor="probe-binary">probe_binary</label>
-          <div className="inline-field">
-            <input id="probe-binary" name="probe-binary" value={settings.probeBinary} readOnly />
-            <button type="button" className="btn btn-ghost">Test Path</button>
-          </div>
-          <p className="field-hint">Absolute path to the ffprobe executable. Ensure the server has execution permissions.</p>
-        </div>
-      </article>
-
-      <article className="panel-card panel-card-wide">
         <div className="panel-card-head">
           <h3>probe_args</h3>
           <button type="button" className="text-action">Add Argument</button>

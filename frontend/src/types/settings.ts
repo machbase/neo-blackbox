@@ -11,6 +11,8 @@ export interface MachbaseSettings {
   host: string;
   port: number;
   timeoutSeconds: number;
+  useToken: boolean;
+  apiToken: string;
 }
 
 export interface MediaMtxSettings {
@@ -38,7 +40,6 @@ export interface ProbeArgItem {
 }
 
 export interface FFmpegDefaults {
-  probeBinary: string;
   probeArgs: ProbeArgItem[];
 }
 
