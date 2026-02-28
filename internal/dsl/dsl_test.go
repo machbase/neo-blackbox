@@ -292,6 +292,9 @@ func TestEvaluate_ParseErrors(t *testing.T) {
 		{"double_op", "person >> 3"},
 		{"trailing_op", "person +"},
 		{"invalid_char", "person @ 3"},
+		// 단항 마이너스(-) 미지원: '-' 앞에 피연산자 없이 사용하면 파싱 에러
+		{"negative_literal", "-1 > 0"},
+		{"leading_minus", "- person"},
 	}
 
 	for _, tt := range tests {
@@ -341,6 +344,66 @@ func TestValidate(t *testing.T) {
 	})
 }
 
+// TestEvaluate_DoubleNOT: NOT NOT x 는 x 의 truthy와 동일해야 합니다.
+func TestEvaluate_DoubleNOT(t *testing.T) {
+	counts := map[string]float64{"person": 5, "truck": 0}
+	tests := []struct {
+		name      string
+		expr      string
+		wantValue bool
+	}{
+		// NOT NOT 5 → NOT 0 → 1 → true
+		{"not_not_nonzero", "NOT NOT person", true},
+		// NOT NOT 0 → NOT 1 → 0 → false
+		{"not_not_zero", "NOT NOT truck", false},
+		// !! 연산자도 동일하게 동작
+		{"bang_bang_nonzero", "!!person", true},
+		{"bang_bang_zero", "!!truck", false},
+		// NOT NOT 비교식
+		{"not_not_comparison", "NOT NOT (person > 3)", true},
+		{"not_not_false_comparison", "NOT NOT (person > 10)", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := Evaluate(tt.expr, counts)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Value != tt.wantValue {
+				t.Errorf("Value = %v, want %v", result.Value, tt.wantValue)
+			}
+		})
+	}
+}
+
+// TestValidate_EmptyVsNilAllowedIdents: 빈 슬라이스와 nil의 동작 차이를 검증합니다.
+// - nil: ident 검사를 건너뜀 → 어떤 ident든 허용
+// - 빈 []string{}: ident 허용 목록이 비어있으므로 모든 ident를 거부
+func TestValidate_EmptyVsNilAllowedIdents(t *testing.T) {
+	t.Run("nil_skips_check", func(t *testing.T) {
+		err := Validate("person > 3 AND unknown_obj >= 0", nil)
+		if err != nil {
+			t.Errorf("nil allowedIdents should skip ident check, got: %v", err)
+		}
+	})
+
+	t.Run("empty_slice_rejects_all_idents", func(t *testing.T) {
+		// 빈 슬라이스는 nil이 아니므로 ident 검사 실행, 허용 목록이 비어 모든 ident 거부
+		err := Validate("person > 3", []string{})
+		if err == nil {
+			t.Error("empty allowedIdents should reject all idents, got nil")
+		}
+	})
+
+	t.Run("number_only_expr_passes_empty_slice", func(t *testing.T) {
+		// ident가 없는 수식은 빈 슬라이스에서도 통과
+		err := Validate("42 > 10", []string{})
+		if err != nil {
+			t.Errorf("number-only expression should pass empty allowedIdents, got: %v", err)
+		}
+	})
+}
+
 func TestCollectIdents(t *testing.T) {
 	tokens, _ := tokenize("person > 3 AND car >= 1 OR truck == 0")
 	p := &parser{tokens: tokens}
@@ -365,5 +428,37 @@ func TestCollectIdents(t *testing.T) {
 		if !want[k] {
 			t.Errorf("unexpected ident %q", k)
 		}
+	}
+}
+
+// TestCollectIdents_Duplicates: 같은 ident가 여러 번 나오면 중복 포함하여 반환합니다.
+// collectIdents는 중복 제거를 하지 않으므로, Validate에서 중복 검사가 발생하지만
+// 동일 ident가 allowed 목록에 있으면 정상 통과합니다.
+func TestCollectIdents_Duplicates(t *testing.T) {
+	tokens, _ := tokenize("person > 3 AND person < 10")
+	p := &parser{tokens: tokens}
+	node, err := p.parseExpr()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	idents := collectIdents(node)
+	count := 0
+	for _, id := range idents {
+		if id == "person" {
+			count++
+		}
+	}
+	// collectIdents는 중복 제거 없이 반환하므로 "person"이 2번 나와야 합니다
+	if count != 2 {
+		t.Errorf("expected 2 occurrences of 'person' (no dedup), got %d", count)
+	}
+}
+
+// TestValidate_DuplicateIdentInExpr: 같은 ident가 여러 번 쓰여도 allowed 목록에 있으면 통과합니다.
+func TestValidate_DuplicateIdentInExpr(t *testing.T) {
+	err := Validate("person > 3 AND person < 10", []string{"person"})
+	if err != nil {
+		t.Errorf("duplicate ident in allowed list should pass, got: %v", err)
 	}
 }

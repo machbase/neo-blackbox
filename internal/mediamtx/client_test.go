@@ -324,3 +324,81 @@ func TestWaitPathReady_ContextTimeout(t *testing.T) {
 		strings.Contains(err.Error(), "context deadline exceeded")
 	assert.True(t, isTimeoutErr, "타임아웃 관련 에러여야 합니다: %v", err)
 }
+
+// --- 네트워크 에러 ---
+
+// TestAddPath_NetworkError: 서버에 연결할 수 없으면 에러를 반환하는지 검증합니다.
+func TestAddPath_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	client := &Client{baseURL: u, http: srv.Client()}
+	srv.Close() // 즉시 닫아서 연결 거부 유발
+
+	err = client.AddPath(context.Background(), "cam1", PathConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "do request")
+}
+
+// TestRemovePath_NetworkError: 서버에 연결할 수 없으면 에러를 반환하는지 검증합니다.
+func TestRemovePath_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	client := &Client{baseURL: u, http: srv.Client()}
+	srv.Close()
+
+	err = client.RemovePath(context.Background(), "cam1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "do request")
+}
+
+// --- Malformed JSON ---
+
+// TestGetPath_MalformedJSON: 서버가 유효하지 않은 JSON을 반환하면 decode 에러를 반환하는지 검증합니다.
+func TestGetPath_MalformedJSON(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{invalid json`))
+	})
+
+	client := newTestClient(t, handler)
+	_, err := client.GetPath(context.Background(), "cam1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode")
+}
+
+// TestGetPathStatus_MalformedJSON: 서버가 유효하지 않은 JSON을 반환하면 decode 에러를 반환하는지 검증합니다.
+func TestGetPathStatus_MalformedJSON(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`not-json`))
+	})
+
+	client := newTestClient(t, handler)
+	_, err := client.GetPathStatus(context.Background(), "cam1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode")
+}
+
+// --- WaitPathReady 에러 전파 ---
+
+// TestWaitPathReady_StatusError: GetPathStatus가 서버 에러를 반환하면 WaitPathReady도 즉시 에러를 반환하는지 검증합니다.
+func TestWaitPathReady_StatusError(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	})
+
+	client := newTestClient(t, handler)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.WaitPathReady(ctx, "cam1", 10*time.Millisecond)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}

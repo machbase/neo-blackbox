@@ -139,8 +139,18 @@ func (h *Handler) PostEventRules(c *gin.Context) {
 	})
 }
 
+// EventRuleUpdateRequest는 EventRule 수정 요청 구조체.
+// rule_id는 URL path에서 받으므로 body에 포함하지 않음.
+// Enabled는 false 값을 zero value와 구분하기 위해 *bool 사용.
+type EventRuleUpdateRequest struct {
+	Name       string `json:"name" binding:"required"`
+	Expression string `json:"expression_text" binding:"required"`
+	RecordMode string `json:"record_mode" binding:"required"`
+	Enabled    *bool  `json:"enabled" binding:"required"`
+}
+
 // UpdateEventRules handles POST /api/event_rule/:camera_id/:rule_id.
-// 기존 EventRule을 수정.
+// 기존 EventRule을 부분 수정 (전송된 필드만 업데이트).
 func (h *Handler) UpdateEventRules(c *gin.Context) {
 	tick := time.Now()
 
@@ -157,8 +167,8 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 		return
 	}
 
-	var rule EventRule
-	if err := c.ShouldBindJSON(&rule); err != nil {
+	var req EventRuleUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		errorResponse(c, tick, http.StatusBadRequest, "bad request parameter")
 		return
 	}
@@ -181,33 +191,39 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 		return
 	}
 
-	// expression_text를 소문자로 변환
-	rule.Expression = strings.ToLower(rule.Expression)
-
-	// record_mode 대문자 정규화 및 유효성 검사
-	rule.RecordMode = strings.ToUpper(rule.RecordMode)
-	if rule.RecordMode != "ALL_MATCHES" && rule.RecordMode != "EDGE_ONLY" {
-		logger.GetLogger().Errorf("UpdateEventRules[%s/%s]: invalid record_mode '%s'", cameraID, ruleID, rule.RecordMode)
-		errorResponse(c, tick, http.StatusBadRequest, fmt.Sprintf("invalid record_mode '%s': must be 'ALL_MATCHES' or 'EDGE_ONLY'", rule.RecordMode))
-		return
-	}
-
-	// rule_id 찾아서 수정
-	found := false
+	// rule_id 찾기
+	ruleIdx := -1
 	for i, existing := range camera.EventRule {
 		if existing.ID == ruleID {
-			// rule_id는 변경 불가 (URL에서 지정된 것을 유지)
-			rule.ID = ruleID
-			camera.EventRule[i] = rule
-			found = true
+			ruleIdx = i
 			break
 		}
 	}
 
-	if !found {
+	if ruleIdx == -1 {
 		errorResponse(c, tick, http.StatusNotFound, fmt.Sprintf("rule_id '%s' not found", ruleID))
 		return
 	}
+
+	// expression_text를 소문자로 변환
+	req.Expression = strings.ToLower(req.Expression)
+
+	// record_mode 대문자 정규화 및 유효성 검사
+	req.RecordMode = strings.ToUpper(req.RecordMode)
+	if req.RecordMode != "ALL_MATCHES" && req.RecordMode != "EDGE_ONLY" {
+		logger.GetLogger().Errorf("UpdateEventRules[%s/%s]: invalid record_mode '%s'", cameraID, ruleID, req.RecordMode)
+		errorResponse(c, tick, http.StatusBadRequest, fmt.Sprintf("invalid record_mode '%s': must be 'ALL_MATCHES' or 'EDGE_ONLY'", req.RecordMode))
+		return
+	}
+
+	// 기존 rule 업데이트
+	rule := camera.EventRule[ruleIdx]
+	rule.Name = req.Name
+	rule.Expression = req.Expression
+	rule.RecordMode = req.RecordMode
+	rule.Enabled = *req.Enabled
+
+	camera.EventRule[ruleIdx] = rule
 
 	// 파일 저장
 	cameraJSON, err := json.MarshalIndent(camera, "", "  ")
