@@ -36,7 +36,8 @@ func (m *Machbase) CreateCameraEventTable(ctx context.Context, tableName string)
     used_counts_snapshot JSON
 ) METADATA (
     camera_id VARCHAR(64),
-    rule_id VARCHAR(64)
+    rule_id VARCHAR(64),
+    rule_name VARCHAR(128)
 ) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, tableName)
 
 	if _, err := m.Query(ctx, sqlEvent); err != nil {
@@ -107,7 +108,8 @@ func (m *Machbase) CreateCameraTables(ctx context.Context, name string) error {
     used_counts_snapshot JSON
 ) METADATA (
     camera_id VARCHAR(64),
-    rule_id VARCHAR(64)
+    rule_id VARCHAR(64),
+    rule_name VARCHAR(128)
 ) TAG_PARTITION_COUNT=1, TAG_DATA_PART_SIZE=4194304`, name)
 
 	if _, err := m.Query(ctx, sqlEvent); err != nil {
@@ -161,13 +163,14 @@ type CameraEventRow struct {
 	UsedCountsSnapshot string // JSON string
 	CameraID           string // metadata
 	RuleID             string // metadata
+	RuleName           string // metadata
 }
 
 func (m *Machbase) InsertCameraEvents(ctx context.Context, table string, events []CameraEventRow) error {
-	columns := []string{"name", "time", "value", "expression_text", "used_counts_snapshot", "camera_id", "rule_id"}
+	columns := []string{"name", "time", "value", "expression_text", "used_counts_snapshot", "camera_id", "rule_id", "rule_name"}
 	rows := make([][]any, len(events))
 	for i, e := range events {
-		rows[i] = []any{e.Name, e.Time, e.Value, e.ExpressionText, e.UsedCountsSnapshot, e.CameraID, e.RuleID}
+		rows[i] = []any{e.Name, e.Time, e.Value, e.ExpressionText, e.UsedCountsSnapshot, e.CameraID, e.RuleID, e.RuleName}
 	}
 	return m.WriteRows(ctx, table, columns, rows)
 }
@@ -181,6 +184,7 @@ type CameraEventQueryRow struct {
 	UsedCountsSnapshot string    `json:"used_counts_snapshot"`
 	CameraID           string    `json:"camera_id"`
 	RuleID             string    `json:"rule_id"`
+	RuleName           string    `json:"rule_name"`
 }
 
 // CameraEventFilter holds optional filters for QueryCameraEvents.
@@ -195,7 +199,12 @@ type CameraEventFilter struct {
 // QueryCameraEvents queries {table}_event with time range and optional filters.
 func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs, endNs int64, filter *CameraEventFilter) ([]CameraEventQueryRow, error) {
 	safeTable := escapeSQLLiteral(table)
-	where := fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+	var where string
+	if startNs <= 0 {
+		where = fmt.Sprintf("time <= %d", endNs)
+	} else {
+		where = fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+	}
 
 	if filter != nil {
 		if filter.CameraID != "" {
@@ -220,7 +229,7 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 	}
 
 	sql := fmt.Sprintf(
-		"SELECT name, time, value, expression_text, used_counts_snapshot, camera_id, rule_id "+
+		"SELECT name, time, value, expression_text, used_counts_snapshot, camera_id, rule_id, rule_name "+
 			"FROM %s_event WHERE %s ORDER BY time DESC %s",
 		safeTable, where, pagination,
 	)
@@ -238,6 +247,7 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 		UsedCountsSnapshot string  `json:"USED_COUNTS_SNAPSHOT"`
 		CameraID           string  `json:"CAMERA_ID"`
 		RuleID             string  `json:"RULE_ID"`
+		RuleName           string  `json:"RULE_NAME"`
 	}
 	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
 		return nil, err
@@ -253,16 +263,42 @@ func (m *Machbase) QueryCameraEvents(ctx context.Context, table string, startNs,
 			UsedCountsSnapshot: r.UsedCountsSnapshot,
 			CameraID:           r.CameraID,
 			RuleID:             r.RuleID,
+			RuleName:           r.RuleName,
 		}
 	}
 	return result, nil
+}
+
+// UpdateEventRuleName updates the rule_name metadata column for all event rows
+// whose tag name matches {cameraID}.{ruleID}.
+// Machbase TAG 테이블은 동일한 name(태그)에 속한 모든 행이 같은 메타데이터를 공유하므로,
+// rule name이 변경될 때 이 메서드로 Machbase 쪽 메타를 일치시킵니다.
+func (m *Machbase) UpdateEventRuleName(ctx context.Context, table string, cameraID string, ruleID string, newRuleName string) error {
+	tagName := cameraID + "." + ruleID
+	sql := fmt.Sprintf(
+		"UPDATE %s_event METADATA SET rule_name = '%s' WHERE name = '%s'",
+		escapeSQLLiteral(table),
+		escapeSQLLiteral(newRuleName),
+		escapeSQLLiteral(tagName),
+	)
+	if _, err := m.Query(ctx, sql); err != nil {
+		return fmt.Errorf("update rule_name for %s: %w", tagName, err)
+	}
+	return nil
 }
 
 // CountCameraEvents returns the count of events in {table}_event within a time range.
 // Optional filter applies the same WHERE conditions as QueryCameraEvents (without LIMIT/OFFSET).
 func (m *Machbase) CountCameraEvents(ctx context.Context, table string, startNs, endNs int64, filter *CameraEventFilter) (int64, error) {
 	safeTable := escapeSQLLiteral(table)
-	where := fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+	// startNs=0 이면 Machbase가 0을 INT32로 파싱해 DATETIME 비교 오류 발생.
+	// startNs <= 0 인 경우 하한 없이 전체 기간 조회.
+	var where string
+	if startNs <= 0 {
+		where = fmt.Sprintf("time <= %d", endNs)
+	} else {
+		where = fmt.Sprintf("time BETWEEN %d AND %d", startNs, endNs)
+	}
 
 	if filter != nil {
 		if filter.CameraID != "" {

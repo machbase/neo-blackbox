@@ -26,11 +26,10 @@ import (
 var validIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type EventRule struct {
-	ID         string `json:"rule_id"`
-	Name       string `json:"name"`
-	Alias      string `json:"alias"`
-	Expression string `json:"expression_text"`
-	RecordMode string `json:"record_mode"`
+	ID         string `json:"rule_id" binding:"required"`
+	Name       string `json:"name" binding:"required"`
+	Expression string `json:"expression_text" binding:"required"`
+	RecordMode string `json:"record_mode" binding:"required"`
 	Enabled    bool   `json:"enabled"`
 }
 
@@ -556,6 +555,7 @@ func (h *Handler) evaluateEventRules(ctx context.Context, tableName string, came
 				UsedCountsSnapshot: string(snapshotJSON),
 				CameraID:           cameraID,
 				RuleID:             rule.ID,
+				RuleName:           rule.Name,
 			})
 		}
 	}

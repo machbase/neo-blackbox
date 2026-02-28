@@ -524,6 +524,7 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 		UsedCountsSnapshot string  `json:"used_counts_snapshot"`
 		CameraID           string  `json:"camera_id"`
 		RuleID             string  `json:"rule_id"`
+		RuleName           string  `json:"rule_name"`
 	}
 
 	events := make([]eventRow, len(allRows))
@@ -548,6 +549,7 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 			UsedCountsSnapshot: r.UsedCountsSnapshot,
 			CameraID:           r.CameraID,
 			RuleID:             r.RuleID,
+			RuleName:           r.RuleName,
 		}
 	}
 

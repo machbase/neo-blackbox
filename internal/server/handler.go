@@ -543,6 +543,97 @@ var (
 	ErrInvalidTimeFormat    = NewApiError(http.StatusBadRequest, "Invalid time format")
 )
 
+// startOrphanWatcher는 60초 간격으로 Machbase 테이블 목록을 조회하여
+// 대응 테이블이 삭제된 카메라 설정파일을 자동 제거하는 백그라운드 고루틴이다.
+func (h *Handler) startOrphanWatcher(ctx context.Context) {
+	const interval = 60 * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	logger.GetLogger().Infof("[orphan_watcher] started (interval=%v)", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.checkAndRemoveOrphans(ctx)
+		}
+	}
+}
+
+// checkAndRemoveOrphans는 Machbase에 존재하지 않는 테이블을 가진 카메라 설정파일을 제거한다.
+func (h *Handler) checkAndRemoveOrphans(ctx context.Context) {
+	tables, err := h.machbase.ListTagTables(ctx)
+	if err != nil {
+		logger.GetLogger().Warnf("[orphan_watcher] failed to list tables, skipping: %v", err)
+		return
+	}
+
+	tableSet := make(map[string]bool, len(tables))
+	for _, t := range tables {
+		tableSet[t] = true
+	}
+
+	// 캐시에서 고아 카메라 목록 수집 (RLock → 복사 후 처리)
+	type orphanEntry struct {
+		cameraID string
+		table    string
+		rtspPath string
+	}
+
+	h.configMu.RLock()
+	var orphans []orphanEntry
+	for cameraID, cfg := range h.cameraConfigs {
+		if cfg.Table == "" {
+			continue
+		}
+		if !tableSet[strings.ToLower(cfg.Table)] {
+			orphans = append(orphans, orphanEntry{
+				cameraID: cameraID,
+				table:    cfg.Table,
+				rtspPath: cfg.RtspPath,
+			})
+		}
+	}
+	h.configMu.RUnlock()
+
+	for _, o := range orphans {
+		logger.GetLogger().Warnf("[orphan_watcher] table %q not found in Machbase, removing camera %q", o.table, o.cameraID)
+
+		// ffmpeg 프로세스 종료
+		h.processMu.Lock()
+		proc, running := h.processes[o.cameraID]
+		if running {
+			delete(h.processes, o.cameraID)
+		}
+		h.processMu.Unlock()
+		if running {
+			proc.cancel()
+			if err := h.watcher.RemoveWatch(ctx, o.cameraID); err != nil {
+				logger.GetLogger().Warnf("[orphan_watcher] failed to remove watcher for %q: %v", o.cameraID, err)
+			}
+		}
+
+		// MediaMTX path 삭제
+		if o.rtspPath != "" {
+			if err := h.mediamtxClient.RemovePath(ctx, o.rtspPath); err != nil {
+				logger.GetLogger().Warnf("[orphan_watcher] failed to remove MediaMTX path %q: %v", o.rtspPath, err)
+			}
+		}
+
+		// 설정파일 · MVS 파일 · 캐시 제거
+		cameraPath := filepath.Join(h.cameraDir, o.cameraID+".json")
+		if err := os.Remove(cameraPath); err != nil && !os.IsNotExist(err) {
+			logger.GetLogger().Errorf("[orphan_watcher] failed to remove config file %q: %v", cameraPath, err)
+		}
+		h.removeMvsFiles(o.cameraID)
+		h.removeCameraConfigCache(o.cameraID)
+
+		logger.GetLogger().Infof("[orphan_watcher] removed orphaned camera %q (table=%q)", o.cameraID, o.table)
+	}
+}
+
 // startupCamerasAsync는 서버 시작 시 모든 카메라를 복원한다.
 // 순서: MediaMTX path 등록 완료 → 카메라 프로세스(ffmpeg) 시작
 // 백그라운드 goroutine으로 호출한다.

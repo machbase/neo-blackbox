@@ -233,6 +233,30 @@ func (m *Machbase) ListTags(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
+// ListTagTables returns chunk-only TAG table names (TYPE=6, FLAG=0) in lowercase.
+// _event, _log 파생 테이블을 제외하고 청크 전용 메인 테이블만 반환.
+// 카메라 고아 설정파일 탐지용: 메인 테이블이 없을 때만 설정파일을 삭제하기 위함.
+func (m *Machbase) ListTagTables(ctx context.Context) ([]string, error) {
+	sql := "SELECT NAME FROM M$SYS_TABLES WHERE TYPE=6 AND FLAG=0 AND NAME NOT LIKE '%_EVENT' AND NAME NOT LIKE '%_LOG' ORDER BY NAME"
+	resp, err := m.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []struct {
+		Name string `json:"NAME"`
+	}
+	if err := json.Unmarshal(resp.Data.Rows, &rows); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, strings.ToLower(r.Name))
+	}
+	return names, nil
+}
+
 // ListTables fetches TAG table names from Machbase that match the video chunk table schema.
 // Only returns tables with columns: name, time, value, chunk_path
 // Excludes _event and _log suffixed tables.

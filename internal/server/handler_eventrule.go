@@ -221,6 +221,14 @@ func (h *Handler) UpdateEventRules(c *gin.Context) {
 		return
 	}
 
+	// rule_name 메타데이터 업데이트: 파일 저장 후 Machbase 쪽 메타컬럼도 동기화
+	// 실패해도 파일은 이미 저장됐으므로 경고만 남기고 계속 진행
+	if camera.Table != "" {
+		if err := h.machbase.UpdateEventRuleName(c.Request.Context(), camera.Table, cameraID, ruleID, rule.Name); err != nil {
+			logger.GetLogger().Warnf("UpdateEventRules[%s/%s]: failed to update rule_name in Machbase: %v", cameraID, ruleID, err)
+		}
+	}
+
 	// Event rules 캐시 갱신
 	h.refreshCameraConfigCache(cameraID)
 

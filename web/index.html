@@ -473,6 +473,7 @@
                         <input type="text" id="create-table-name" placeholder="my_table" />
                         <p class="help-text">영문, 숫자, 언더스코어(_)만 사용 가능</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('table-create')">예시</button>
                     <button class="btn btn-success" onclick="createTable()">생성하기</button>
                     <div class="response-area" id="table-create-response"></div>
                 </div>
@@ -553,6 +554,7 @@
 ]</textarea>
                         <p class="help-text">FFmpeg 옵션을 JSON 배열 형식으로 입력하세요. 수정하거나 비워두면 빈 배열로 전송됩니다.</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-create')">예시</button>
                     <button class="btn btn-success" onclick="createCamera()">생성하기</button>
                     <div class="response-area" id="camera-create-response"></div>
                 </div>
@@ -564,6 +566,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="get-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-get')">예시</button>
                     <button class="btn btn-primary" onclick="getCamera()">조회하기</button>
                     <div class="response-area" id="camera-get-response"></div>
                 </div>
@@ -580,6 +583,7 @@
                         <textarea id="update-camera-json" placeholder='{"name": "camera1", "desc": "Updated description", ...}'></textarea>
                         <p class="help-text">전체 카메라 설정 JSON을 입력하세요</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-update')">예시</button>
                     <button class="btn btn-success" onclick="updateCamera()">수정하기</button>
                     <div class="response-area" id="camera-update-response"></div>
                 </div>
@@ -591,6 +595,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="delete-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-delete')">예시</button>
                     <button class="btn btn-danger" onclick="deleteCamera()">삭제하기</button>
                     <div class="response-area" id="camera-delete-response"></div>
                 </div>
@@ -603,6 +608,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="detect-objects-get-camera" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-detect-objects-get')">예시</button>
                     <button class="btn btn-primary" onclick="getCameraDetectObjects()">조회하기</button>
                     <div class="response-area" id="camera-detect-objects-get-response"></div>
                 </div>
@@ -619,6 +625,7 @@
                         <label>Detect Objects (쉼표로 구분) *</label>
                         <input type="text" id="detect-objects-update-list" placeholder="person,car,truck,bus" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-detect-objects-update')">예시</button>
                     <button class="btn btn-success" onclick="updateCameraDetectObjects()">수정하기</button>
                     <div class="response-area" id="camera-detect-objects-update-response"></div>
                 </div>
@@ -630,6 +637,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="enable-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-enable')">예시</button>
                     <button class="btn btn-success" onclick="enableCamera()">활성화하기</button>
                     <div class="response-area" id="camera-enable-response"></div>
                 </div>
@@ -641,6 +649,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="disable-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-disable')">예시</button>
                     <button class="btn btn-danger" onclick="disableCamera()">비활성화하기</button>
                     <div class="response-area" id="camera-disable-response"></div>
                 </div>
@@ -652,6 +661,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="status-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-status')">예시</button>
                     <button class="btn btn-primary" onclick="getCameraStatus()">조회하기</button>
                     <div class="response-area" id="camera-status-response"></div>
                 </div>
@@ -672,6 +682,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="test-camera-id" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-test')">예시</button>
                     <button class="btn btn-primary" onclick="testCameraConnection()">연결 테스트</button>
                     <div class="response-area" id="camera-test-response"></div>
                 </div>
@@ -688,6 +699,7 @@
                         <label>Timeout (초, 기본 5 / 최대 5)</label>
                         <input type="number" id="ping-timeout" placeholder="5" min="1" max="5" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('cameras-ping')">예시</button>
                     <button class="btn btn-primary" onclick="pingCamera()">Ping 전송</button>
                     <div class="response-area" id="cameras-ping-response"></div>
                 </div>
@@ -720,6 +732,7 @@
                             <p class="help-text">MediaMTX WHEP endpoint URL을 입력하세요.</p>
                         </div>
 
+                        <button class="btn btn-secondary" onclick="loadExample('live-stream')">예시</button>
                         <button class="btn btn-success" onclick="startWebRTCStream()">
                             🎬 스트림 시작
                         </button>
@@ -743,6 +756,7 @@
                         <label>Tag Name (Camera ID) *</label>
                         <input type="text" id="timerange-tagname" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('time-range')">예시</button>
                     <button class="btn btn-primary" onclick="getTimeRange()">조회하기</button>
                     <div class="response-area" id="time-range-response"></div>
                 </div>
@@ -763,6 +777,7 @@
                             <button class="btn btn-secondary" onclick="adjustTime('chunkinfo-time', 5)">+ 5초</button>
                         </div>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('chunk-info')">예시</button>
                     <button class="btn btn-primary" onclick="getChunkInfo()">조회하기</button>
                     <div class="response-area" id="chunk-info-response"></div>
                 </div>
@@ -786,6 +801,7 @@
                         </div>
                         <p class="help-text" style="margin-top: 5px;">ISO 시간 형식(예: 2026-02-06T10:18:34.19)을 입력 후 "변환" 버튼을 누르면 Unix 나노초로 변환됩니다.</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('chunk-download')">예시</button>
                     <button class="btn btn-primary" onclick="downloadChunk()">조회하기</button>
                     <div class="response-area" id="chunk-download-response"></div>
                 </div>
@@ -819,6 +835,7 @@
                         </div>
                         <p class="help-text">현재 시간 버튼을 클릭하면 Start Time은 현재 시간, End Time은 5초 후로 자동 설정됩니다.</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('rollup-info')">예시</button>
                     <button class="btn btn-primary" onclick="getRollupInfo()">조회하기</button>
                     <div class="response-area" id="rollup-info-response"></div>
                 </div>
@@ -856,6 +873,7 @@
                         </div>
                         <p class="help-text">현재 시간 버튼: Start = 현재, End = 5초 후 (RFC3339 형식)</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('data-gaps')">예시</button>
                     <button class="btn btn-primary" onclick="getDataGaps()">조회하기</button>
                     <div class="response-area" id="data-gaps-response"></div>
                 </div>
@@ -867,6 +885,7 @@
                         <label>Tag Name (Camera ID)</label>
                         <input type="text" id="sensors-tagname" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('sensors-list')">예시</button>
                     <button class="btn btn-primary" onclick="getSensors()">조회하기</button>
                     <div class="response-area" id="sensors-list-response"></div>
                 </div>
@@ -886,6 +905,7 @@
                         <label>End Time (Unix nanoseconds) *</label>
                         <input type="text" id="sensordata-end" placeholder="1640100000000000000" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('sensor-data')">예시</button>
                     <button class="btn btn-primary" onclick="getSensorData()">조회하기</button>
                     <div class="response-area" id="sensor-data-response"></div>
                 </div>
@@ -897,6 +917,7 @@
                         <label>Camera ID *</label>
                         <input type="text" id="eventrule-get-camera" placeholder="camera1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('event-rule-get')">예시</button>
                     <button class="btn btn-primary" onclick="getEventRule()">조회하기</button>
                     <div class="response-area" id="event-rule-get-response"></div>
                 </div>
@@ -906,8 +927,9 @@
                     <h2><span class="method-badge method-post">POST</span> 이벤트 규칙 생성</h2>
                     <div class="form-group">
                         <label>JSON Body *</label>
-                        <textarea id="eventrule-create-json" placeholder='{"camera_id": "camera1", "rule_id": "rule-1", "expression_text": "person > 0", ...}'></textarea>
+                        <textarea id="eventrule-create-json" placeholder='{"camera_id": "camera1", "rule": {"rule_id": "rule-1", "name": "...", "expression_text": "person > 0", "record_mode": "EDGE_ONLY", "enabled": true}}'></textarea>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('event-rule-create')">예시</button>
                     <button class="btn btn-success" onclick="createEventRule()">생성하기</button>
                     <div class="response-area" id="event-rule-create-response"></div>
                 </div>
@@ -925,8 +947,9 @@
                     </div>
                     <div class="form-group">
                         <label>Rule JSON Body *</label>
-                        <textarea id="eventrule-update-json" placeholder='{"id": "rule-1", "expression_text": "person > 0", "recording_policy": "EDGE_ONLY"}'></textarea>
+                        <textarea id="eventrule-update-json" placeholder='{"id": "rule-1", "name": "사람 감지", "expression": "person > 0", "record_mode": "EDGE_ONLY"}'></textarea>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('event-rule-update')">예시</button>
                     <button class="btn btn-success" onclick="updateEventRule()">수정하기</button>
                     <div class="response-area" id="event-rule-update-response"></div>
                 </div>
@@ -942,6 +965,7 @@
                         <label>Rule ID *</label>
                         <input type="text" id="eventrule-delete-rule" placeholder="rule-1" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('event-rule-delete')">예시</button>
                     <button class="btn btn-danger" onclick="deleteEventRule()">삭제하기</button>
                     <div class="response-area" id="event-rule-delete-response"></div>
                 </div>
@@ -990,6 +1014,7 @@
                             <input type="number" id="camera-events-page" placeholder="1" min="1" />
                         </div>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('camera-events')">예시</button>
                     <button class="btn btn-primary" onclick="getCameraEvents()">조회하기</button>
                     <div class="response-area" id="camera-events-response"></div>
                 </div>
@@ -1022,6 +1047,7 @@
                         <label>Detections (JSON) *</label>
                         <textarea id="ai-detections" placeholder='{"person": 3, "car": 2, "truck": 1}'></textarea>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('ai-result')">예시</button>
                     <button class="btn btn-success" onclick="uploadAIResult()">업로드하기</button>
                     <div class="response-area" id="ai-result-response"></div>
                 </div>
@@ -1046,6 +1072,7 @@
                         <label>Detect Objects (쉼표로 구분)</label>
                         <input type="text" id="mvs-detect-objects" placeholder="person,car,truck,bus" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('mvs-camera-create')">예시</button>
                     <button class="btn btn-success" onclick="createMVSCamera()">생성하기</button>
                     <div class="response-area" id="mvs-camera-create-response"></div>
                 </div>
@@ -1062,6 +1089,7 @@
                         <label>timeformat (선택)</label>
                         <input type="text" id="machbase-sql-timeformat" placeholder="ms, ns, s ..." style="width:200px" />
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('machbase-sql')">예시</button>
                     <button class="btn btn-primary" onclick="runMachbaseSQL()">실행</button>
                     <div class="response-area" id="machbase-sql-response"></div>
                 </div>
@@ -1074,6 +1102,7 @@
                         <label>TQL Body *</label>
                         <textarea id="machbase-tql-body" rows="6" placeholder="SQL('select * from MY_TABLE limit 5')&#10;CSV()"></textarea>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadExample('machbase-tql')">예시</button>
                     <button class="btn btn-success" onclick="runMachbaseTQL()">실행</button>
                     <div class="response-area" id="machbase-tql-response"></div>
                 </div>
@@ -2068,6 +2097,145 @@ ${JSON.stringify({ error: error.message }, null, 2)}
                 showResponse('machbase-tql-response', parsed, !resp.ok);
             } catch (error) {
                 showResponse('machbase-tql-response', { error: error.message }, true);
+            }
+        }
+
+        // Example data loader
+        function loadExample(section) {
+            const now = Date.now();
+            const nowNs = now * 1_000_000;
+            const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+
+            switch (section) {
+                case 'table-create':
+                    set('create-table-name', 'camera_test');
+                    break;
+                case 'camera-create':
+                    set('create-table', 'camera1');
+                    set('create-name', '정문 카메라');
+                    set('create-desc', '건물 정문 CCTV');
+                    set('create-rtsp', 'rtsp://192.168.1.100:554/stream');
+                    set('create-objects', 'person,car,truck,bus');
+                    set('create-output-dir', '');
+                    set('create-archive-dir', '');
+                    break;
+                case 'camera-get':
+                    set('get-camera-id', 'camera1');
+                    break;
+                case 'camera-update':
+                    set('update-camera-id', 'camera1');
+                    set('update-camera-json', JSON.stringify({
+                        desc: '수정된 설명',
+                        rtsp_url: 'rtsp://192.168.1.100:554/stream',
+                        detect_objects: ['person', 'car'], save_objects: true, ffmpeg_options: []
+                    }, null, 2));
+                    break;
+                case 'camera-delete':
+                    set('delete-camera-id', 'camera1');
+                    break;
+                case 'camera-detect-objects-get':
+                    set('detect-objects-get-camera', 'camera1');
+                    break;
+                case 'camera-detect-objects-update':
+                    set('detect-objects-update-camera', 'camera1');
+                    set('detect-objects-update-list', 'person,car,truck,bus');
+                    break;
+                case 'camera-enable':
+                    set('enable-camera-id', 'camera1');
+                    break;
+                case 'camera-disable':
+                    set('disable-camera-id', 'camera1');
+                    break;
+                case 'camera-status':
+                    set('status-camera-id', 'camera1');
+                    break;
+                case 'camera-test':
+                    set('test-camera-id', 'camera1');
+                    break;
+                case 'cameras-ping':
+                    set('ping-ip', '192.168.1.100');
+                    set('ping-timeout', '3');
+                    break;
+                case 'live-stream':
+                    set('stream-webrtc-url', 'http://localhost:8889/cam-test/whep');
+                    break;
+                case 'time-range':
+                    set('timerange-tagname', 'camera1');
+                    break;
+                case 'chunk-info':
+                    set('chunkinfo-tagname', 'camera1');
+                    set('chunkinfo-time', nowNs);
+                    break;
+                case 'chunk-download':
+                    set('chunk-tagname', 'camera1');
+                    set('chunk-time', nowNs);
+                    break;
+                case 'rollup-info':
+                    set('rollup-tagname', 'camera1');
+                    set('rollup-minutes', '60');
+                    set('rollup-start', nowNs - 3600 * 1_000_000_000);
+                    set('rollup-end', nowNs);
+                    break;
+                case 'data-gaps':
+                    set('gaps-camera-id', 'camera1');
+                    set('gaps-interval', '5');
+                    set('gaps-start-time', new Date(now - 3600000).toISOString());
+                    set('gaps-end-time', new Date(now).toISOString());
+                    break;
+                case 'sensors-list':
+                    set('sensors-tagname', 'camera1');
+                    break;
+                case 'sensor-data':
+                    set('sensordata-sensors', 'camera1.person,camera1.car');
+                    set('sensordata-start', nowNs - 3600 * 1_000_000_000);
+                    set('sensordata-end', nowNs);
+                    break;
+                case 'event-rule-get':
+                    set('eventrule-get-camera', 'camera1');
+                    break;
+                case 'event-rule-create':
+                    set('eventrule-create-json', JSON.stringify({
+                        camera_id: 'camera1',
+                        rule: { rule_id: 'rule-1', name: '사람 감지 규칙', expression_text: 'person > 0', record_mode: 'EDGE_ONLY', enabled: true }
+                    }, null, 2));
+                    break;
+                case 'event-rule-update':
+                    set('eventrule-update-camera', 'camera1');
+                    set('eventrule-update-rule', 'rule-1');
+                    set('eventrule-update-json', JSON.stringify({
+                        rule_id: 'rule-1', name: '사람+차량 감지', expression_text: 'person > 0 or car > 0', record_mode: 'ALL_MATCHES', enabled: true
+                    }, null, 2));
+                    break;
+                case 'event-rule-delete':
+                    set('eventrule-delete-camera', 'camera1');
+                    set('eventrule-delete-rule', 'rule-1');
+                    break;
+                case 'camera-events':
+                    set('camera-events-camera', 'camera1');
+                    set('camera-events-start', nowNs - 3600 * 1_000_000_000);
+                    set('camera-events-end', nowNs);
+                    set('camera-events-size', '100');
+                    set('camera-events-page', '1');
+                    break;
+                case 'ai-result':
+                    set('ai-camera-id', 'camera1');
+                    set('ai-model-id', '0');
+                    set('ai-timestamp', now);
+                    set('ai-detections', JSON.stringify({ person: 3, car: 2, truck: 0, bus: 0 }, null, 2));
+                    break;
+                case 'mvs-camera-create':
+                    set('mvs-camera-id', 'camera1');
+                    set('mvs-camera-url', 'rtsp://192.168.1.100:554/stream');
+                    set('mvs-model-id', '0');
+                    set('mvs-detect-objects', 'person,car,truck,bus');
+                    break;
+                case 'machbase-sql':
+                    set('machbase-sql-query', "select * from M$SYS_TABLES where TYPE=6");
+                    set('machbase-sql-timeformat', '');
+                    break;
+                case 'machbase-tql':
+                    set('machbase-tql-body', "SQL('select count(*) from M$SYS_TABLES')\nCSV()");
+                    break;
             }
         }
 
