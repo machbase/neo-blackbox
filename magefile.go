@@ -408,6 +408,18 @@ func Package(target string) error {
 		}
 	}
 
+	// Copy frontend single-file bundle at repository root.
+	// External packager flattens {packageDir} -> dist/, so this becomes dist/index.html.
+	rootIndexSrc := "index.html"
+	rootIndexDest := filepath.Join(packageDir, "index.html")
+	if _, err := os.Stat(rootIndexSrc); err != nil {
+		return fmt.Errorf("required frontend bundle not found: %s: %w", rootIndexSrc, err)
+	}
+	fmt.Printf("Copying %s to %s\n", rootIndexSrc, rootIndexDest)
+	if err := sh.Copy(rootIndexDest, rootIndexSrc); err != nil {
+		return fmt.Errorf("failed to copy frontend bundle: %w", err)
+	}
+
 	// Create README
 	readmeContent := fmt.Sprintf(`Blackbox Backend Package
 ========================
