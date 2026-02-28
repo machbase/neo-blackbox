@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
+import { generalSettings, ffmpegDefaults, logSettings } from './data/mockSettings';
 import { getConfig, postConfig } from './services/configApi';
 import { buildFallbackApiConfigData, fromApiToDraft, toPostPayload } from './services/configMapper';
 import { FFmpegTab } from './tabs/FFmpegTab';
@@ -107,6 +108,11 @@ function App() {
     setDraft((prev) => ({ ...prev, log: nextLog }));
   };
 
+  const handleLoadExample = () => {
+    resetSaveStatus();
+    setDraft({ general: generalSettings, ffmpeg: ffmpegDefaults, log: logSettings });
+  };
+
   const handleSave = async () => {
     if (saveState === 'saving') {
       return;
@@ -134,6 +140,7 @@ function App() {
         <TopBar
           breadcrumb={meta.breadcrumb}
           onSave={handleSave}
+          onLoadExample={handleLoadExample}
           isSaving={saveState === 'saving'}
           saveStatus={saveState}
           saveStatusMessage={saveStatusMessage}

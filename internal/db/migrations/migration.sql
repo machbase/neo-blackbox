@@ -21,7 +21,8 @@ CREATE TAG TABLE {camera}_event (
     used_counts_snapshot JSON -- JSON
 ) METADATA (
     camera_id  VARCHAR(64),
-    rule_id    VARCHAR(64)
+    rule_id    VARCHAR(64),
+    rule_name  VARCHAR(128)
 );
 
 CREATE TAG TABLE {camera}_log (

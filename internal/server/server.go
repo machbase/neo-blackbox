@@ -162,6 +162,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// 서버 시작 시 MediaMTX path 등록 후 카메라 프로세스 복원
 	go s.handler.startupCamerasAsync(ctx)
+	// 테이블 삭제 감지 → 고아 카메라 설정파일 자동 제거 (60초 주기)
+	go s.handler.startOrphanWatcher(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
