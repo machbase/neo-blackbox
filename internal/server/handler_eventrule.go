@@ -319,6 +319,11 @@ func (h *Handler) DeleteEventRules(c *gin.Context) {
 		return
 	}
 
+	// EDGE_ONLY 상태 정리 (삭제된 rule의 이전 상태 제거)
+	h.edgeMu.Lock()
+	delete(h.edgeState, cameraID+"."+ruleID)
+	h.edgeMu.Unlock()
+
 	// Event rules 캐시 갱신
 	h.refreshCameraConfigCache(cameraID)
 

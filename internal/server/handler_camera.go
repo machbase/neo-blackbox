@@ -737,9 +737,8 @@ func (h *Handler) UpdateCamera(c *gin.Context) {
 	}
 
 	// MVS 파일 갱신: 기존 파일 내용 수정 + 필요시 파일명 변경
-	// 1. 기존 MVS 파일 찾기
-	oldMvsPattern := filepath.Join(h.mvsDir, fmt.Sprintf("%s_*.mvs", id))
-	oldMvsFiles, _ := filepath.Glob(oldMvsPattern)
+	// 1. 기존 MVS 파일 찾기 (디렉토리 파싱으로 cameraID 정확 매칭)
+	oldMvsFiles := h.findMvsFiles(id)
 
 	// 2. 새 MVS 데이터 생성
 	// AI 매니저는 MediaMTX 프록시 URL을 사용해야 카메라 동시접속 제한을 피할 수 있음
@@ -1179,7 +1178,7 @@ func (h *Handler) runCameraLoop(
 ) {
 	const (
 		initBackoff = 3 * time.Second
-		maxBackoff  = 30 * time.Second
+		maxBackoff  = 10 * time.Second
 		stableTime  = 1 * time.Minute
 	)
 	backoff := initBackoff
@@ -1526,12 +1525,18 @@ func (h *Handler) GetCameraStatus(c *gin.Context) {
 	proc, running := h.processes[id]
 	h.processMu.Unlock()
 	if running {
-		status = "running"
 		proc.mu.Lock()
-		if proc.cmd != nil && proc.cmd.Process != nil {
+		hasProcess := proc.cmd != nil && proc.cmd.Process != nil
+		if hasProcess {
 			pid = proc.cmd.Process.Pid
 		}
 		proc.mu.Unlock()
+
+		if hasProcess {
+			status = "running"
+		} else {
+			status = "restarting"
+		}
 		startedAt = proc.startedAt.Format(time.RFC3339)
 		uptime = time.Since(proc.startedAt).Truncate(time.Second).String()
 	}
@@ -1586,13 +1591,19 @@ func (h *Handler) GetCamerasHealth(c *gin.Context) {
 		}
 
 		if proc, ok := h.processes[name]; ok {
-			cam["status"] = "running"
-			runningCount++
 			proc.mu.Lock()
-			if proc.cmd != nil && proc.cmd.Process != nil {
+			hasProcess := proc.cmd != nil && proc.cmd.Process != nil
+			if hasProcess {
 				cam["pid"] = proc.cmd.Process.Pid
 			}
 			proc.mu.Unlock()
+
+			if hasProcess {
+				cam["status"] = "running"
+			} else {
+				cam["status"] = "restarting"
+			}
+			runningCount++
 			cam["started_at"] = proc.startedAt.Format(time.RFC3339)
 			cam["uptime"] = time.Since(proc.startedAt).Truncate(time.Second).String()
 		}
@@ -1707,6 +1718,29 @@ func (h *Handler) UpdateDetectObjectsByCamera(c *gin.Context) {
 	}
 
 	h.refreshCameraConfigCache(id)
+
+	// MVS 파일도 갱신: AI 매니저가 detect_objects 변경을 감지할 수 있도록
+	oldMvsFiles := h.findMvsFiles(id)
+	if len(oldMvsFiles) > 0 {
+		oldMvsData, err := os.ReadFile(oldMvsFiles[0])
+		if err == nil {
+			var oldMvs MvsCameraCreateRequest
+			if err := json.Unmarshal(oldMvsData, &oldMvs); err == nil {
+				oldMvs.DetectObjects = req.DetectObjects
+
+				if newMvsJSON, err := json.MarshalIndent(oldMvs, "", "  "); err == nil {
+					h.removeMvsFiles(id)
+					newMvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, oldMvs.ModelID, time.Now().Unix())
+					newMvsPath := filepath.Join(h.mvsDir, newMvsFileName)
+					if err := os.WriteFile(newMvsPath, newMvsJSON, 0644); err != nil {
+						logger.GetLogger().Warnf("UpdateDetectObjectsByCamera[%s]: failed to write mvs file %q: %v", id, newMvsPath, err)
+					} else {
+						logger.GetLogger().Infof("UpdateDetectObjectsByCamera[%s]: mvs file updated: %s", id, newMvsFileName)
+					}
+				}
+			}
+		}
+	}
 
 	successResponse(c, tick, map[string]any{
 		"camera_id":      id,

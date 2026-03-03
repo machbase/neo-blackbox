@@ -45,7 +45,7 @@ var defaultSensorLabels = map[string]string{
 	"sensor-10": "Sensor 10",
 }
 
-var tagPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+var tagPattern = regexp.MustCompile(`^[\p{L}\p{N}_.:-]+$`)
 
 // cameraProcess tracks a running ffmpeg process for a camera.
 // cmd is protected by mu and may be nil during backoff between restarts.
@@ -231,15 +231,15 @@ func (h *Handler) removeCameraConfigCache(cameraID string) {
 	h.configMu.Unlock()
 }
 
-// removeMvsFiles deletes all mvs files that belong to cameraID.
+// findMvsFiles returns all MVS file paths that belong to the given cameraID.
 // MVS 파일명 형식: {cameraID}_{modelID}_{timestamp}.mvs
-// glob 패턴은 prefix 매칭이라 다른 카메라 파일을 삭제할 수 있으므로
-// 파일명에서 뒤쪽 두 _필드를 제거한 값이 cameraID와 정확히 일치하는 경우만 삭제.
-func (h *Handler) removeMvsFiles(cameraID string) {
+// 파일명에서 뒤쪽 두 _필드(modelID, timestamp)를 제거한 값이 cameraID와 정확히 일치하는 경우만 반환.
+func (h *Handler) findMvsFiles(cameraID string) []string {
 	entries, err := os.ReadDir(h.mvsDir)
 	if err != nil {
-		return
+		return nil
 	}
+	var result []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".mvs") {
 			continue
@@ -257,8 +257,16 @@ func (h *Handler) removeMvsFiles(cameraID string) {
 			continue
 		}
 		if base == cameraID {
-			_ = os.Remove(filepath.Join(h.mvsDir, e.Name()))
+			result = append(result, filepath.Join(h.mvsDir, e.Name()))
 		}
+	}
+	return result
+}
+
+// removeMvsFiles deletes all mvs files that belong to cameraID.
+func (h *Handler) removeMvsFiles(cameraID string) {
+	for _, path := range h.findMvsFiles(cameraID) {
+		_ = os.Remove(path)
 	}
 }
 
