@@ -1719,6 +1719,29 @@ func (h *Handler) UpdateDetectObjectsByCamera(c *gin.Context) {
 
 	h.refreshCameraConfigCache(id)
 
+	// MVS 파일도 갱신: AI 매니저가 detect_objects 변경을 감지할 수 있도록
+	oldMvsFiles := h.findMvsFiles(id)
+	if len(oldMvsFiles) > 0 {
+		oldMvsData, err := os.ReadFile(oldMvsFiles[0])
+		if err == nil {
+			var oldMvs MvsCameraCreateRequest
+			if err := json.Unmarshal(oldMvsData, &oldMvs); err == nil {
+				oldMvs.DetectObjects = req.DetectObjects
+
+				if newMvsJSON, err := json.MarshalIndent(oldMvs, "", "  "); err == nil {
+					h.removeMvsFiles(id)
+					newMvsFileName := fmt.Sprintf("%s_%d_%d.mvs", id, oldMvs.ModelID, time.Now().Unix())
+					newMvsPath := filepath.Join(h.mvsDir, newMvsFileName)
+					if err := os.WriteFile(newMvsPath, newMvsJSON, 0644); err != nil {
+						logger.GetLogger().Warnf("UpdateDetectObjectsByCamera[%s]: failed to write mvs file %q: %v", id, newMvsPath, err)
+					} else {
+						logger.GetLogger().Infof("UpdateDetectObjectsByCamera[%s]: mvs file updated: %s", id, newMvsFileName)
+					}
+				}
+			}
+		}
+	}
+
 	successResponse(c, tick, map[string]any{
 		"camera_id":      id,
 		"detect_objects": req.DetectObjects,
