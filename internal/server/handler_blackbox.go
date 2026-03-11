@@ -569,12 +569,16 @@ func (h *Handler) GetCameraEvents(c *gin.Context) {
 		totalPages = (totalCount + int64(limit) - 1) / int64(limit)
 	}
 
-	// 마지막 이벤트 조회 시간 갱신: max(endNs, 기존 기록)
-	h.lastEventQueryTimeMu.Lock()
-	if endNs > h.lastEventQueryTime {
-		h.lastEventQueryTime = endNs
+	// 마지막 이벤트 조회 시간 갱신: 조회된 데이터 중 가장 최신 시간 사용 (DESC 정렬이므로 첫 번째)
+	if len(allRows) > 0 {
+		latestNs := allRows[0].Time.UnixNano()
+		h.lastEventQueryTimeMu.Lock()
+		if latestNs > h.lastEventQueryTime {
+			h.lastEventQueryTime = latestNs
+			h.saveState()
+		}
+		h.lastEventQueryTimeMu.Unlock()
 	}
-	h.lastEventQueryTimeMu.Unlock()
 
 	successResponse(c, tick, map[string]any{
 		"events":      events,

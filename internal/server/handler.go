@@ -86,6 +86,7 @@ type Handler struct {
 	detectObjectMu       sync.RWMutex
 	lastEventQueryTime   int64 // 마지막 이벤트 조회 시간 (nanoseconds)
 	lastEventQueryTimeMu sync.Mutex
+	stateFilePath        string // {dataDir}/state.json 경로
 }
 
 // Watcher interface for adding/removing file system watches dynamically
@@ -126,6 +127,8 @@ func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegR
 		edgeState:      make(map[string]bool),
 		cameraConfigs:  make(map[string]*CameraCreateRequest),
 	}
+	h.stateFilePath = filepath.Join(dataDir, "state.json")
+	h.loadState()
 	h.loadAllCameraConfigs()
 
 	// COCO 80 classes (hardcoded)
@@ -143,6 +146,42 @@ func NewHandler(machbase *db.Machbase, watcher Watcher, ffRunner *ffmpeg.FFmpegR
 	}
 
 	return h
+}
+
+// serverState represents the persistent state saved to state.json.
+type serverState struct {
+	LastEventQueryTime int64 `json:"last_event_query_time"`
+}
+
+// loadState reads state.json and restores lastEventQueryTime.
+func (h *Handler) loadState() {
+	data, err := os.ReadFile(h.stateFilePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.GetLogger().Warnf("loadState: failed to read %s: %v", h.stateFilePath, err)
+		}
+		return
+	}
+	var s serverState
+	if err := json.Unmarshal(data, &s); err != nil {
+		logger.GetLogger().Warnf("loadState: failed to parse %s: %v", h.stateFilePath, err)
+		return
+	}
+	h.lastEventQueryTime = s.LastEventQueryTime
+	logger.GetLogger().Infof("loadState: restored lastEventQueryTime=%d", s.LastEventQueryTime)
+}
+
+// saveState writes current lastEventQueryTime to state.json.
+func (h *Handler) saveState() {
+	s := serverState{LastEventQueryTime: h.lastEventQueryTime}
+	data, err := json.Marshal(s)
+	if err != nil {
+		logger.GetLogger().Errorf("saveState: failed to marshal: %v", err)
+		return
+	}
+	if err := os.WriteFile(h.stateFilePath, data, 0644); err != nil {
+		logger.GetLogger().Errorf("saveState: failed to write %s: %v", h.stateFilePath, err)
+	}
 }
 
 // loadAllCameraConfigs scans cameraDir and pre-loads all camera configs into cache.
